@@ -19,14 +19,16 @@ async function getNextRef() {
 export const getArticles = async (_req, res) => {
   try {
     const articles = await Article.find({})
-      .populate({ path: "type", select: "name_fr name_en" })
+      .collation({ locale: "en", numericOrdering: true }) // ← IMPORTANT
       .sort({ reference: 1 })
+      .populate({ path: "type", select: "name_fr name_en" })
       .lean();
 
     const data = articles.map(a => ({
       ...a,
-      prixTTC: Number((a.prixHT * (1 + VAT_RATE)).toFixed(4)),
-      typeName: a.type?.name_fr || ""  // pratique côté front
+      prixTTC: a.prixHT != null ? Number((a.prixHT * 1.20).toFixed(4)) : null,
+      typeName: a.type?.name_fr || "",
+      isArchived: !!a.archived,
     }));
 
     res.json({ success: true, data });
@@ -35,6 +37,7 @@ export const getArticles = async (_req, res) => {
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 };
+
 
 // GET /articles/:id
 export const getArticleById = async (req, res) => {
@@ -124,45 +127,63 @@ export const createArticle = async (req, res) => {
   }
 };
 
-// PUT /articles/:id
+
+// PATCH /articles/:id  (modifier sans jamais toucher à "reference")
 export const updateArticle = async (req, res) => {
   try {
-    const { designation, prixHT, type, numeroDevis } = req.body;
+    if ("reference" in req.body) delete req.body.reference;
 
-    const update = {};
-    if (designation !== undefined) update.designation = (designation || "").trim();
-    if (prixHT !== undefined) update.prixHT = Number(prixHT);
-    if (type !== undefined) update.type = type;
-    if (numeroDevis !== undefined) update.numeroDevis = (numeroDevis || "").trim();
-
-    // Empêcher la modification de reference ici (on la garde immuable)
-    // si tu veux l'autoriser, ajoute: if (reference) update.reference = reference;
-
-    const article = await Article.findByIdAndUpdate(
-      req.params.id,
-      update,
-      { new: true }
-    ).populate({ path: "type", select: "name_fr name_en" });
-
-    if (!article) {
-      return res.status(404).json({ success: false, message: "Article introuvable" });
+    const current = await Article.findById(req.params.id).lean();
+    if (!current) return res.status(404).json({ success: false, message: "Article introuvable" });
+    if (current.archived) {
+      return res.status(400).json({ success: false, message: "Article archivé : modification non autorisée" });
     }
 
-    res.json({ success: true, data: article });
+    const { designation, prixHT, type, numeroDevis } = req.body;
+    const payload = {};
+    if (designation !== undefined) payload.designation = String(designation || "").trim();
+    if (prixHT !== undefined) {
+      const n = Number(prixHT);
+      if (Number.isNaN(n) || n < 0) return res.status(400).json({ success: false, message: "prixHT invalide" });
+      payload.prixHT = n;
+    }
+    if (type !== undefined) payload.type = type;
+    if (numeroDevis !== undefined) payload.numeroDevis = String(numeroDevis || "").trim();
+
+    const updated = await Article.findByIdAndUpdate(
+      req.params.id,
+      { $set: payload },
+      { new: true, runValidators: true }
+    ).populate({ path: "type", select: "name_fr name_en" }).lean();
+
+    updated.prixTTC = Number((updated.prixHT * (1 + VAT_RATE)).toFixed(4));
+    updated.typeName = updated.type?.name_fr || "";
+
+    res.json({ success: true, data: updated });
   } catch (err) {
     console.error("updateArticle error:", err);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 };
 
-// DELETE /articles/:id
+
+// DELETE /articles/:id (supprime l'article — on NE TOUCHE PAS au compteur)
 export const deleteArticle = async (req, res) => {
   try {
-    const article = await Article.findByIdAndDelete(req.params.id);
-    if (!article) {
-      return res.status(404).json({ success: false, message: "Article introuvable" });
-    }
-    res.json({ success: true, message: "Article supprimé avec succès" });
+    const doc = await Article.findByIdAndUpdate(
+      req.params.id,
+      { $set: { archived: true, designation: "", prixHT: null, type: null, numeroDevis: "" } },
+      { new: true }
+    ).lean();
+
+    if (!doc) return res.status(404).json({ success: false, message: "Article introuvable" });
+
+    // On NE touche PAS au compteur : la référence reste “réservée”.
+    res.json({
+      success: true,
+      message: "Article archivé. La référence est conservée et visible dans la liste.",
+      data: { _id: doc._id, reference: doc.reference }
+    });
   } catch (err) {
     console.error("deleteArticle error:", err);
     res.status(500).json({ success: false, message: "Erreur serveur" });

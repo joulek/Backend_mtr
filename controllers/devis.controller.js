@@ -38,6 +38,46 @@ const MODELS = [
   DevisAutre,
 ];
 
+// ✅ Admin: stream PDF par numéro
+export async function adminPdfByNumero(req, res) {
+  try {
+    const { numero } = req.params;
+    if (!numero) {
+      return res.status(400).json({ success: false, message: "numero requis" });
+    }
+
+    const filename = `${numero}.pdf`;
+    const abs = path.resolve(process.cwd(), "storage/devis", filename);
+
+    // 1) S'il existe sur disque -> stream
+    try {
+      await fsp.access(abs, fs.constants.R_OK);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      return fs.createReadStream(abs).pipe(res);
+    } catch {
+      // pas sur disque, on tente la base
+    }
+
+    // 2) Fallback DB (si tu stockes aussi le PDF en DB)
+    const devis = await Devis.findOne({ numero }, { pdf: 1 }).lean();
+    const raw = devis?.pdf?.data ?? devis?.pdf ?? null;
+    if (!raw) {
+      return res.status(404).json({ success: false, message: "PDF introuvable" });
+    }
+
+    const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    res.setHeader("Content-Type", devis?.pdf?.contentType || "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+    return res.end(buf);
+  } catch (e) {
+    console.error("adminPdfByNumero:", e);
+    return res
+      .status(500)
+      .json({ success: false, message: e.message || "Erreur serveur" });
+  }
+}
+
 /** GET /api/devis/numeros-all */
 export const getAllDevisNumeros = async (req, res) => {
   try {
