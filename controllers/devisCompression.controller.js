@@ -8,6 +8,7 @@ const toNum = (val) => Number(String(val ?? "").replace(",", "."));
 const formatDevisNumber = (year, seq) =>
   `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;
 
+
 /**
  * POST /api/devis/compression
  * - nécessite auth (req.user.id)
