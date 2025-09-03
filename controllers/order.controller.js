@@ -166,7 +166,7 @@ export async function placeClientOrder(req, res) {
         </h1>
 
         <p style="margin:0 0 12px 0;">Bonjour,</p>
-        <p style="margin:0 0 16px 0;">Une commande a été confirmée&nbsp;:</p>
+        <p style="margin:0 0 16px 0;">Vous avez reçu une nouvelle commande&nbsp;:</p>
 
         <ul style="margin:0 0 16px 20px;padding:0;">
           <li><strong>Client&nbsp;:</strong> ${clientDisplay}</li>
@@ -176,6 +176,7 @@ export async function placeClientOrder(req, res) {
           ${note ? `<li><strong>Note&nbsp;:</strong> ${note}</li>` : ""}
           <li><strong>N° Demande&nbsp;:</strong> ${demandeNumero || demande.numero || demandeId}</li>
           ${devisNumero ? `<li><strong>N° Devis&nbsp;:</strong> ${devisNumero}</li>` : ""}
+          ${devisLink ? `<li><strong>Lien PDF devis&nbsp;:</strong> <a href="${devisLink}" style="color:${BRAND_PRIMARY};text-decoration:underline;">${devisLink}</a></li>` : ""}
         </ul>
 
         <p style="margin:16px 0 0 0;">Merci.</p>
@@ -183,8 +184,7 @@ export async function placeClientOrder(req, res) {
     </div>
 
     <!-- Bande inférieure (claire + centrée) -->
-    <div style="background:${BAND_BG};color:${BAND_TEXT};text-align:center;padding:12px 16px;font-size:12px;font-weight:600;">
-      MTR – Manufacture Tunisienne des ressorts${SITE_HOST ? ` • ${SITE_HOST}` : ""}
+    <div style="background:${BAND_BG};color:${BAND_TEXT};padding:16px 20px;font-weight:800;font-size:14px;text-align:center;letter-spacing:.3px;">
     </div>
   </body>
 </html>`;
