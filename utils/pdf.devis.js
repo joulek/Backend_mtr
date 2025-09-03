@@ -48,21 +48,21 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   doc.pipe(fs.createWriteStream(fullpath));
 
   const W = doc.page.width;
-  const M = doc.page.margins.left;      // 30
-  const innerW = W - 2 * M;             // largeur utile
-  const tableW = innerW, tableX = M;    // tableau pleine largeur
+  const M = doc.page.margins.left;
+  const innerW = W - 2 * M;
+  const tableW = innerW, tableX = M;
 
   const FONT = { tiny: 8, small: 9, normal: 10, section: 13, title: 16, big: 20 };
 
   /* ===== ENTÊTE ===== */
-  const yTopTitle = 10;
+  const yTopTitle = 28;  // ↓ descend le titre pour éviter la coupe
   const xLogo = M;
-  const yLogo = 2;
+  const yLogo = 6;
 
-  // Logo
-  const logoW = 155;
-  const logoHMax = 80;
-  const logoPath = path.resolve("assets/logo.png");
+  // Logo (agrandi)
+  const logoW = 190;
+  const logoHMax = 90;
+  const logoPath = path.resolve("assets/logo_MTR.png");
   let logoH = 0;
   if (fs.existsSync(logoPath)) {
     doc.image(logoPath, xLogo, yLogo, { fit: [logoW, logoHMax] });
@@ -80,10 +80,13 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
     .text("Conception et Fabrication des Ressorts", titleX, yTopTitle + 46, { width: titleW })
     .text("Dressage fils, Cambrage, Cintrage fils et tubes", titleX, yTopTitle + 61, { width: titleW });
 
+  // Bas réel du bloc titre
+  const titleBottom = yTopTitle + 61 + 14;
+
   /* ===== 2 CADRES ===== */
   const infoYBase = 118;
-  const infoY = Math.max(infoYBase, yLogo + logoH + 12);
-  const infoH = 76; // on ne change pas la hauteur
+  const infoY = Math.max(infoYBase, yLogo + logoH + 12, titleBottom + 12);
+  const infoH = 76;
   const BOX_GAP = 16;
   const leftW = Math.round(innerW * 0.45);
   const rightW = innerW - leftW - BOX_GAP;
@@ -110,7 +113,7 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   doc.font("Helvetica").text(dayjs(devis.createdAt).format("DD/MM/YYYY"), leftBox.x + lPad + 25, ly);
   ly += lh;
 
-  // N° DDV (liste unique, séparée par virgules)
+  // N° DDV (unique, fusionné)
   const ddvSet = new Set([
     devis?.demandeNumero,
     devis?.meta?.demandeNumero,
@@ -153,14 +156,12 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   /* ===== TABLEAU ARTICLES ===== */
   let y = infoY + infoH + 18;
 
-  // Libellé ↓ un peu / Référence + Remise ↑ (et un léger plus pour Qté/Unité/PT HT)
   //            Ref   Libellé  Qté  Unité  PUHT  Remise  PTHT  TVA
-  const baseW  =    [  78,     242,  64,   42,   60,     60,    46,   40 ];
-  const labels =    ["Référence","Libellé","Quantité","Unité","PUHT","Remise","PT HT","TVA"];
-  const aligns =    ["left",    "left",   "right",   "center","right","right","right","right"];
+  const baseW = [78, 242, 64, 42, 60, 60, 46, 40];
+  const labels = ["Référence", "Libellé", "Quantité", "Unité", "PUHT", "Remise", "PT HT", "TVA"];
+  const aligns = ["left", "left", "right", "center", "right", "right", "right", "right"];
 
-  // mise à l’échelle
-  const baseSum = baseW.reduce((s,w) => s+w,0);
+  const baseSum = baseW.reduce((s, w) => s + w, 0);
   const scale = innerW / baseSum;
 
   const widths = [];
@@ -173,7 +174,6 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   widths.push(innerW - acc);
   const cols = labels.map((label, i) => ({ label, w: widths[i], align: aligns[i] }));
 
-  // entête
   const headerH = 22;
   const headerTopY = y;
   doc.rect(tableX, y, tableW, headerH).stroke();
@@ -186,7 +186,6 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   });
   y += headerH;
 
-  // lignes
   const rowH = 22;
   doc.font("Helvetica").fontSize(FONT.normal);
   (devis.items || []).forEach((it) => {
@@ -284,12 +283,12 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   const lastRateW = remaining - rateW * 3;
 
   const tvaCols = [
-    { w: tauxLabelW, align: "left"   },
-    { w: fodecW,     align: "center" },
-    { w: rateW,      align: "center" },
-    { w: rateW,      align: "center" },
-    { w: rateW,      align: "center" },
-    { w: lastRateW,  align: "center" },
+    { w: tauxLabelW, align: "left" },
+    { w: fodecW, align: "center" },
+    { w: rateW, align: "center" },
+    { w: rateW, align: "center" },
+    { w: rateW, align: "center" },
+    { w: lastRateW, align: "center" },
   ];
 
   // Header
@@ -317,25 +316,27 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
   yTva += tvaHeaderH;
 
   // Lignes BASE & MT
+  const totals2 = computeTotals(devis); // pour éviter de relire "totals" si muté
   const baseRow = [
     "BASE",
-    totals.mtnetht,
-    totals.baseByRate[0],
-    totals.baseByRate[7],
-    totals.baseByRate[13],
-    totals.baseByRate[19],
+    totals2.mtnetht,
+    totals2.baseByRate[0],
+    totals2.baseByRate[7],
+    totals2.baseByRate[13],
+    totals2.baseByRate[19],
   ];
   const mtRow = [
     "MT",
-    totals.mfodec,
+    totals2.mfodec,
     0,
-    totals.baseByRate[7] * 0.07,
-    totals.baseByRate[13] * 0.13,
-    totals.baseByRate[19] * 0.19,
+    totals2.baseByRate[7] * 0.07,
+    totals2.baseByRate[13] * 0.13,
+    totals2.baseByRate[19] * 0.19,
   ];
 
+  const cellH2 = cellH;
   const drawTvaRow = (arr) => {
-    doc.rect(tvaX, yTva, tvaW, cellH).stroke();
+    doc.rect(tvaX, yTva, tvaW, cellH2).stroke();
     let cx = tvaX;
     arr.forEach((val, i) => {
       const cw = tvaCols[i].w;
@@ -344,9 +345,9 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
       doc.font(i === 0 ? "Helvetica-Bold" : "Helvetica")
         .text(txt, cx + 4, yTva + 3, { width: cw - 8, align, lineBreak: false });
       cx += cw;
-      if (i < arr.length - 1) doc.moveTo(cx, yTva).lineTo(cx, yTva + cellH).stroke();
+      if (i < arr.length - 1) doc.moveTo(cx, yTva).lineTo(cx, yTva + cellH2).stroke();
     });
-    yTva += cellH;
+    yTva += cellH2;
   };
   drawTvaRow(baseRow);
   drawTvaRow(mtRow);
@@ -368,9 +369,9 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
     .text("Adresse :  ZI  EL  ONS Route de Tunis KM 10 Sakiet Ezzit BP 237 Sfax - Tunisie", M, footY)
     .text("Code TVA : 1327477/EAM 000", M, footY + 14)
     .text("E-mail : mtrsfax@gmail.com", M, footY + 28)
-    .text("GSM : 98 333 883", M, footY + 42);
+    .text("GSM : 98 333 883 / 98 331 896", M, footY + 42)
   doc.text("TEL : (216)74 850 999 / 74 863 888", M + 300, footY + 14)
-    .text("FAX : (216)74 864 863", M + 300, footY + 28);
+    .text("FAX : (216)74 864 863", M + 300, footY + 28)
 
   try {
     const qrPath = path.resolve("assets/Code_QR_fb.png");
@@ -378,8 +379,9 @@ export async function buildDevisPDF(devis, outDir = "storage/devis") {
     if (fs.existsSync(qrPath)) {
       doc.image(qrPath, W - M - qrSize, footY - 6, { width: qrSize, height: qrSize, fit: [qrSize, qrSize] });
     }
-  } catch {}
+  } catch { }
 
+  /* ===== FIN ===== */
   doc.end();
   return { filename, fullpath };
 }

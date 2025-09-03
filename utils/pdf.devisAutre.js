@@ -123,8 +123,8 @@ export function buildDevisAutrePDF(devis = {}) {
     };
 
     /* ===== En-tête (logo + titres) ===== */
-    const logoPath = tryImage(["assets/logo.png", "public/logo.png", "assets/logo-mtr.png", "/mnt/data/logo.png"]);
-    if (logoPath) doc.image(logoPath, LEFT, y - 6, { fit: [120, 52] });
+    const logoPath = tryImage(["assets/logo_MTR.png"]);
+    if (logoPath) doc.image(logoPath, LEFT, y - 6, { fit: [180, 85] });
 
     doc
       .fillColor(TXT)

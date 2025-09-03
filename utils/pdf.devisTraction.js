@@ -40,7 +40,6 @@ export function buildDevisTractionPDF(devis = {}) {
     v === null || v === undefined || String(v).trim() === "" ? dash : String(v).trim();
 
   const sanitize = (v) => safe(v).replace(/\s*\n+\s*/g, " "); // supprime les \n parasites
-
   const hasText = (v) => v !== null && v !== undefined && String(v).trim() !== "";
 
   const get = (obj, paths = []) => {
@@ -107,8 +106,9 @@ export function buildDevisTractionPDF(devis = {}) {
   };
 
   /* ===== En-tête ===== */
-  const logoPath = tryImage(["assets/logo.png"]);
-  const logoW = 110, logoHMax = 52;
+  const logoPath = tryImage(["assets/logo_MTR.png"]);
+  // ↑ Agrandi : largeur max 180, hauteur max 85 (ratio conservé)
+  const logoW = 180, logoHMax = 85;
   if (logoPath) doc.image(logoPath, LEFT, y - 6, { fit: [logoW, logoHMax] });
 
   doc
@@ -141,77 +141,75 @@ export function buildDevisTractionPDF(devis = {}) {
   y = metaTop + 34;
 
   /* ===== 1) Client ===== */
-  /* ===== 1) Client ===== */
-y = section("Client", y);
+  y = section("Client", y);
 
-const u = devis?.user || {};
-const client = {
-  nom:     get(u, ["nom", "lastName", "name.last", "fullname"]),
-  prenom:  get(u, ["prenom", "firstName", "name.first"]),
-  email:   get(u, ["email"]),
-  tel:     get(u, ["numTel", "telephone", "phone", "tel"]),
-  adresse: get(u, ["adresse", "address", "location.address"]),
-};
+  const u = devis?.user || {};
+  const client = {
+    nom:     get(u, ["nom", "lastName", "name.last", "fullname"]),
+    prenom:  get(u, ["prenom", "firstName", "name.first"]),
+    email:   get(u, ["email"]),
+    tel:     get(u, ["numTel", "telephone", "phone", "tel"]),
+    adresse: get(u, ["adresse", "address", "location.address"]),
+  };
 
-const accountType = (get(u, ["accountType"]) || "").toLowerCase();
-const role        = get(u, ["role"]);
+  const accountType = (get(u, ["accountType"]) || "").toLowerCase();
+  const role        = get(u, ["role"]);
 
-const cin        = get(u, ["personal.cin"]);
-const postePers  = get(u, ["personal.posteActuel"]);
+  const cin        = get(u, ["personal.cin"]);
+  const postePers  = get(u, ["personal.posteActuel"]);
 
-const mf         = get(u, ["company.matriculeFiscal"]);
-const nomSociete = get(u, ["company.nomSociete"]);
-const posteSoc   = get(u, ["company.posteActuel"]);
+  const mf         = get(u, ["company.matriculeFiscal"]);
+  const nomSociete = get(u, ["company.nomSociete"]);
+  const posteSoc   = get(u, ["company.posteActuel"]);
 
-const accountLabel =
-  accountType === "societe"   ? "Société"   :
-  accountType === "personnel" ? "Personnel" : (accountType || "");
+  const accountLabel =
+    accountType === "societe"   ? "Société"   :
+    accountType === "personnel" ? "Personnel" : (accountType || "");
 
-const clientPairs = [];
-const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
+  const clientPairs = [];
+  const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
 
-// Nom complet (fallback si user est string/ObjectId)
-const nomComplet =
-  [client.prenom, client.nom].filter(Boolean).join(" ") ||
-  (typeof u === "string" ? String(u) : safe(u?._id));
+  // Nom complet (fallback si user est string/ObjectId)
+  const nomComplet =
+    [client.prenom, client.nom].filter(Boolean).join(" ") ||
+    (typeof u === "string" ? String(u) : safe(u?._id));
 
-// Identité + méta
-pushPair("Nom", nomComplet);
-pushPair("Type de compte", accountLabel);
-pushPair("Rôle", role);
+  // Identité + méta
+  pushPair("Nom", nomComplet);
+  pushPair("Type de compte", accountLabel);
+  pushPair("Rôle", role);
 
-// Société (si présent)
-if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
-  pushPair("Raison sociale", nomSociete);
-  pushPair("Matricule fiscal", mf);
-  pushPair("Poste (société)", posteSoc);
-}
+  // Société (si présent)
+  if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
+    pushPair("Raison sociale", nomSociete);
+    pushPair("Matricule fiscal", mf);
+    pushPair("Poste (société)", posteSoc);
+  }
 
-// Personnel (si présent)
-if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
-  pushPair("CIN", cin);
-  pushPair("Poste (personnel)", postePers);
-}
+  // Personnel (si présent)
+  if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
+    pushPair("CIN", cin);
+    pushPair("Poste (personnel)", postePers);
+  }
 
-// Contacts
-pushPair("Email", client.email);
-pushPair("Tél.", client.tel);
-pushPair("Adresse", client.adresse);
+  // Contacts
+  pushPair("Email", client.email);
+  pushPair("Tél.", client.tel);
+  pushPair("Adresse", client.adresse);
 
-const rowHClient = 18, labelW = 120; // libellés longs OK
-const clientBoxH = rowHClient * clientPairs.length + 8;
-ensureSpace(clientBoxH + 12);
+  const rowHClient = 18, labelW = 120; // libellés longs OK
+  const clientBoxH = rowHClient * clientPairs.length + 8;
+  ensureSpace(clientBoxH + 12);
 
-doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+  doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
 
-let cy = y + 6;
-clientPairs.forEach(([k, v]) => {
-  fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
-  fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
-  cy += rowHClient;
-});
-y += clientBoxH + 14;
-
+  let cy = y + 6;
+  clientPairs.forEach(([k, v]) => {
+    fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
+    fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
+    cy += rowHClient;
+  });
+  y += clientBoxH + 14;
 
   /* ===== 2) Schéma (2 en haut + 1 centrée en bas si 3 images) ===== */
   const imgPaths = [
@@ -258,7 +256,6 @@ y += clientBoxH + 14;
   }
 
   /* ===== 3) Spécifications principales ===== */
-  // On calcule la hauteur totale; si elle ne tient pas → nouvelle page AVANT d'imprimer
   const s = devis?.spec || {};
   const rows = [
     ["Diamètre du fil (d)", sanitize(s.d), "Diamètre extérieur (De)", sanitize(s.De || s.DE)],
@@ -268,17 +265,16 @@ y += clientBoxH + 14;
     ["Type d’accrochage", sanitize(s.typeAccrochage), "Type de ressort", SPRING_TYPE_LABEL],
   ];
 
-  const rowH = 28;                 // un peu plus compact
+  const rowH = 28;
   const halfW = Math.floor(INNER_W / 2);
   const padX = 6;
-  const labLW = 170;               // label col gauche
-  const labRW = 185;               // label col droite
+  const labLW = 170;
+  const labRW = 185;
   const valLW = halfW - (labLW + padX * 3);
   const valRW = halfW - (labRW + padX * 3);
 
   const tableH = rowH * rows.length;
 
-  // ---- si la table ne tient pas sur la page courante → on bascule en page suivante
   if (y + 22 + tableH + 10 > BOTTOM) {
     doc.addPage();
     y = TOP;
@@ -293,15 +289,12 @@ y += clientBoxH + 14;
     const yy = tableTop + i * rowH;
     if (i % 2 === 0) doc.save().fillColor(LIGHT).rect(LEFT, yy, INNER_W, rowH).fill().restore();
 
-    // lignes
     doc.moveTo(LEFT, yy).lineTo(RIGHT, yy).strokeColor(BORDER).stroke();
     doc.moveTo(LEFT + halfW, yy).lineTo(LEFT + halfW, yy + rowH).strokeColor(BORDER).stroke();
 
-    // Gauche
     fitOneLine({ text: r[0], x: LEFT + padX, y: yy + 6, width: labLW, bold: true, maxSize: 10.5, minSize: 8 });
     fitOneLine({ text: r[1], x: LEFT + padX + labLW + padX, y: yy + 6, width: valLW, maxSize: 10.5, minSize: 7.5 });
 
-    // Droite
     fitOneLine({ text: r[2], x: LEFT + halfW + padX, y: yy + 6, width: labRW, bold: true, maxSize: 10.5, minSize: 8 });
     fitOneLine({ text: r[3], x: LEFT + halfW + padX + labRW + padX, y: yy + 6, width: valRW, maxSize: 10.5, minSize: 7.5 });
   });

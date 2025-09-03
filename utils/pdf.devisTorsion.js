@@ -104,8 +104,9 @@ export function buildDevisTorsionPDF(devis = {}) {
   };
 
   /* ===== En-tête (logo + titres) ===== */
-  const logoPath = tryImage(["assets/logo.png", "/mnt/data/logo.png"]);
-  if (logoPath) doc.image(logoPath, LEFT, y - 6, { fit: [120, 52] });
+  const logoPath = tryImage(["assets/logo_MTR.png"]);
+  // ↑ Agrandi : largeur max 180, hauteur max 85 (ratio conservé)
+  if (logoPath) doc.image(logoPath, LEFT, y - 6, { fit: [180, 85] });
 
   doc.fillColor(TXT).font("Helvetica-Bold").fontSize(17)
      .text("Demande de devis", LEFT, y + 4, { width: INNER_W, align: "center" });
@@ -123,75 +124,72 @@ export function buildDevisTorsionPDF(devis = {}) {
   y = metaTop + 34;
 
   /* ===== Client ===== */
-/* ===== Client ===== */
-y = section("Client", y);
+  y = section("Client", y);
 
-// Champs user supplémentaires
-const accountType = (get(user, ["accountType"]) || "").toLowerCase();
-const role        = get(user, ["role"]);
+  // Champs user supplémentaires
+  const accountType = (get(user, ["accountType"]) || "").toLowerCase();
+  const role        = get(user, ["role"]);
 
-const cin        = get(user, ["personal.cin"]);
-const postePers  = get(user, ["personal.posteActuel"]);
+  const cin        = get(user, ["personal.cin"]);
+  const postePers  = get(user, ["personal.posteActuel"]);
 
-const mf         = get(user, ["company.matriculeFiscal"]);
-const nomSociete = get(user, ["company.nomSociete"]);
-const posteSoc   = get(user, ["company.posteActuel"]);
+  const mf         = get(user, ["company.matriculeFiscal"]);
+  const nomSociete = get(user, ["company.nomSociete"]);
+  const posteSoc   = get(user, ["company.posteActuel"]);
 
-const accountLabel =
-  accountType === "societe"   ? "Société"   :
-  accountType === "personnel" ? "Personnel" : (accountType || "");
+  const accountLabel =
+    accountType === "societe"   ? "Société"   :
+    accountType === "personnel" ? "Personnel" : (accountType || "");
 
-// Liste dynamique (label, valeur)
-const clientPairs = [];
-const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
+  // Liste dynamique (label, valeur)
+  const clientPairs = [];
+  const pushPair = (k, v) => { if (hasText(v)) clientPairs.push([k, sanitize(v)]); };
 
-// Nom complet (fallback si user est string/ObjectId)
-const nomComplet =
-  [client.prenom, client.nom].filter(Boolean).join(" ") ||
-  (typeof user === "string" ? String(user) : safe(user?._id));
+  // Nom complet (fallback si user est string/ObjectId)
+  const nomComplet =
+    [client.prenom, client.nom].filter(Boolean).join(" ") ||
+    (typeof user === "string" ? String(user) : safe(user?._id));
 
-// Identité + méta
-pushPair("Nom", nomComplet);
-pushPair("Type de compte", accountLabel);
-pushPair("Rôle", role);
+  // Identité + méta
+  pushPair("Nom", nomComplet);
+  pushPair("Type de compte", accountLabel);
+  pushPair("Rôle", role);
 
-// Partie société (si présente)
-if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
-  pushPair("Raison sociale", nomSociete);
-  pushPair("Matricule fiscal", mf);
-  pushPair("Poste (société)", posteSoc);
-}
+  // Partie société (si présente)
+  if (accountType === "societe" || hasText(nomSociete) || hasText(mf) || hasText(posteSoc)) {
+    pushPair("Raison sociale", nomSociete);
+    pushPair("Matricule fiscal", mf);
+    pushPair("Poste (société)", posteSoc);
+  }
 
-// Partie personnelle (si présente)
-if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
-  pushPair("CIN", cin);
-  pushPair("Poste (personnel)", postePers);
-}
+  // Partie personnelle (si présente)
+  if (accountType === "personnel" || hasText(cin) || hasText(postePers)) {
+    pushPair("CIN", cin);
+    pushPair("Poste (personnel)", postePers);
+  }
 
-// Contacts
-pushPair("Email", client.email);
-pushPair("Tél.", client.tel);
-pushPair("Adresse", client.adresse);
+  // Contacts
+  pushPair("Email", client.email);
+  pushPair("Tél.", client.tel);
+  pushPair("Adresse", client.adresse);
 
-const rowHClient = 18, labelW = 120; // libellés longs OK
-const clientBoxH = rowHClient * clientPairs.length + 8;
-ensureSpace(clientBoxH + 12);
+  const rowHClient = 18, labelW = 120; // libellés longs OK
+  const clientBoxH = rowHClient * clientPairs.length + 8;
+  ensureSpace(clientBoxH + 12);
 
-doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
+  doc.rect(LEFT, y, INNER_W, clientBoxH).strokeColor(BORDER).stroke();
 
-let cy = y + 6;
-clientPairs.forEach(([k, v]) => {
-  fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
-  fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
-  cy += rowHClient;
-});
-y += clientBoxH + 14;
-
+  let cy = y + 6;
+  clientPairs.forEach(([k, v]) => {
+    fitOneLine({ text: k, x: LEFT + 8, y: cy, width: labelW, bold: true, maxSize: 10, minSize: 8 });
+    fitOneLine({ text: v, x: LEFT + 8 + labelW + 6, y: cy, width: INNER_W - (labelW + 26), maxSize: 10, minSize: 8 });
+    cy += rowHClient;
+  });
+  y += clientBoxH + 14;
 
   /* ===== Schéma (images, plus grand) ===== */
   const imgPaths = [
     tryImage(["assets/torsion.png", "/mnt/data/torsion.png"]),
-
   ].filter(Boolean).slice(0, 3);
 
   if (imgPaths.length) {

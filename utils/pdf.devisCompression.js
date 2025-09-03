@@ -98,8 +98,9 @@ export function buildDevisCompressionPDF(devis = {}) {
   };
 
   /* ===== En-tête ===== */
-  const logoPath = tryImage(["assets/logo.png"]);
-  const logoW = 120, logoHMax = 60;
+  const logoPath = tryImage(["assets/logo_MTR.png"]);
+  // ↑ Agrandi : largeur max 180, hauteur max 85 (ratio conservé)
+  const logoW = 180, logoHMax = 85;
   if (logoPath) doc.image(logoPath, LEFT, y - 8, { fit: [logoW, logoHMax] });
 
   // Titre centré sur 2 lignes
