@@ -1,16 +1,19 @@
 // controllers/devisTorsion.controller.js
 import DevisTorsion from "../models/DevisTorsion.js";
 import Counter from "../models/Counter.js";
-import { buildDevisTorsionPDF } from "../utils/pdf.devisTorsion.js"; // ⚠ à créer
+import { buildDevisTorsionPDF } from "../utils/pdf.devisTorsion.js"; // ⚠ assure-toi que ce builder existe
 import { makeTransport } from "../utils/mailer.js";
 
 const toNum = (val) => Number(String(val ?? "").replace(",", "."));
-const formatDevisNumber = (year, seq) => `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;
+const formatDevisNumber = (year, seq) =>
+  `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;
 
 export const createDevisTorsion = async (req, res) => {
   try {
     if (!req.user?.id) {
-      return res.status(401).json({ success: false, message: "Utilisateur non authentifié" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Utilisateur non authentifié" });
     }
 
     const {
@@ -39,7 +42,7 @@ export const createDevisTorsion = async (req, res) => {
       data: f.buffer
     }));
 
-    // Générer numéro unique
+    // Générer numéro unique DDVYY#####
     const year = new Date().getFullYear();
     const counterId = `devis:${year}`;
     const c = await Counter.findOneAndUpdate(
@@ -63,7 +66,7 @@ export const createDevisTorsion = async (req, res) => {
     // Réponse immédiate au front
     res.status(201).json({ success: true, devisId: devis._id, numero: devis.numero });
 
-    // 2) Traitement asynchrone PDF + email
+    // 2) PDF + email en asynchrone
     setImmediate(async () => {
       const toBuffer = (maybeBinary) => {
         if (!maybeBinary) return null;
@@ -89,7 +92,7 @@ export const createDevisTorsion = async (req, res) => {
           { new: true }
         );
 
-        // Préparer pièces jointes
+        // Pièces jointes
         const attachments = [{
           filename: `devis-torsion-${full._id}.pdf`,
           content: pdfBuffer,
@@ -102,7 +105,7 @@ export const createDevisTorsion = async (req, res) => {
 
         for (const doc of docs) {
           const name = (doc?.filename || "").trim();
-          const buf  = toBuffer(doc?.data);
+          const buf = toBuffer(doc?.data);
           const type = doc?.mimetype || "application/octet-stream";
           if (!name || name.startsWith("~$")) continue;
           if (!buf || buf.length === 0) continue;
@@ -112,17 +115,18 @@ export const createDevisTorsion = async (req, res) => {
           total += buf.length;
         }
 
+        // Données client
         const transporter = makeTransport();
-        const fullName    = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
         const clientEmail = full.user?.email || "-";
-        const clientTel   = full.user?.numTel || "-";
-        const clientAdr   = full.user?.adresse || "-";
-        const clientType  = full.user?.accountType || "-"; // ✅ Type de compte
+        const clientTel = full.user?.numTel || "-";
+        const clientAdr = full.user?.adresse || "-";
+        const clientType = full.user?.accountType || "-";
 
-        const human = (n=0)=> {
-          const u=["B","KB","MB","GB"]; let i=0, v=n;
-          while (v>=1024 && i<u.length-1) { v/=1024; i++; }
-          return `${v.toFixed(v<10&&i>0?1:0)} ${u[i]}`;
+        const human = (n = 0) => {
+          const u = ["B", "KB", "MB", "GB"]; let i = 0, v = n;
+          while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+          return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
         };
 
         const docsList =
@@ -148,31 +152,100 @@ Documents client:
 ${docsList}
 `;
 
-        const htmlBody = `
-<h2>Nouvelle demande de devis – Ressort de Torsion</h2>
-<ul>
-  <li><b>Numéro:</b> ${full.numero}</li>
-  <li><b>Date:</b> ${new Date(full.createdAt).toLocaleString()}</li>
-</ul>
+        // ======= EMAIL HTML (même style que traction/commande confirmée) =======
+        const BRAND_PRIMARY = "#002147"; // titres/liens
+        const BAND_DARK = "#0B2239"; // bandes bleu marine
+        const BAND_TEXT = "#FFFFFF"; // texte bandes
+        const PAGE_BG = "#F5F7FB"; // fond page
+        const CONTAINER_W = 680;       // largeur conteneur
 
-<h3>Infos client</h3>
-<ul>
-  <li><b>Nom:</b> ${fullName}</li>
-  <li><b>Email:</b> ${clientEmail}</li>
-  <li><b>Téléphone:</b> ${clientTel}</li>
-  <li><b>Adresse:</b> ${clientAdr}</li>
-  <li><b>Type de compte:</b> ${clientType}</li>
-</ul>
+        const htmlBody = `<!doctype html>
+<html>
+  <head>
+    <meta charSet="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${fullName} - ${full.numero}</title>
+  </head>
+  <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:${PAGE_BG};margin:0;padding:24px 16px;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
 
-<h3>Pièces jointes</h3>
-<ul>
-  <li>PDF de la demande: <code>devis-torsion-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
-</ul>
+          <!-- Conteneur centré -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:${CONTAINER_W}px;max-width:100%;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
 
-<h3>Documents client</h3>
-<pre>${docsList}</pre>
-`;
+            <!-- Bande TOP -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
+            <!-- Espace -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Carte contenu -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+                      <p style="margin:0 0 12px 0;">Bonjour, Vous avez reçu une <strong>nouvelle demande de devis (torsion)</strong>&nbsp;:</p>
+                      <ul style="margin:0 0 16px 20px;padding:0;">
+                        <li><strong>Client&nbsp;:</strong> ${fullName}</li>
+                        <li><strong>Email&nbsp;:</strong> ${clientEmail}</li>
+                        <li><strong>Téléphone&nbsp;:</strong> ${clientTel}</li>
+                        <li><strong>Type&nbsp;:</strong> torsion</li>
+                        <li><strong>N° Demande&nbsp;:</strong> ${full.numero}</li>
+                      </ul>
+
+                     
+
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Espace -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM (même largeur que TOP, même sans texte) -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      &nbsp;
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+        // Envoi
         await transporter.sendMail({
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,

@@ -144,8 +144,6 @@ export async function placeClientOrder(req, res) {
     const PAGE_BG = "#F5F7FB";   // fond général clair
     const CONTAINER_W = 680;         // largeur du container
     const SITE_HOST = getSiteHost(req);
-
-    // HTML : bandes limitées à la largeur du container
     const html = `<!doctype html>
 <html>
   <head>
@@ -154,47 +152,88 @@ export async function placeClientOrder(req, res) {
     <title>${subject}</title>
   </head>
   <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
-    
-    <!-- Wrapper centré -->
-    <div style="max-width:${CONTAINER_W}px;margin:0 auto;padding:24px 16px;">
-      
-      <!-- Bande TOP (exactement la largeur du container) -->
-      <div style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;border-radius:8px;">
-        MTR – Manufacture Tunisienne des ressorts
-      </div>
 
-      <!-- Carte contenu -->
-      <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-top:16px;">
-        <div style="padding:24px;">
-          <h1 style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${BRAND_PRIMARY};">
-            ${subject}
-          </h1>
+    <!-- Wrapper plein écran -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:${PAGE_BG};margin:0;padding:24px 16px;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
 
-          <p style="margin:0 0 12px 0;">Bonjour,</p>
-          <p style="margin:0 0 16px 0;">Une commande a été confirmée&nbsp;:</p>
+          <!-- Conteneur centré -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:${CONTAINER_W}px;max-width:100%;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
 
-          <ul style="margin:0 0 16px 20px;padding:0;">
-            <li><strong>Client&nbsp;:</strong> ${clientDisplay}</li>
-            <li><strong>Email&nbsp;:</strong> ${uEmail || "-"}</li>
-            <li><strong>Téléphone&nbsp;:</strong> ${uTel || "-"}</li>
-            <li><strong>N° Demande&nbsp;:</strong> ${demandeNumero || demande.numero || demandeId}</li>
-            ${devisNumero ? `<li><strong>N° Devis&nbsp;:</strong> ${devisNumero}</li>` : ""}
-            ${devisLink ? `<li><strong>Lien PDF devis&nbsp;:</strong> <a href="${devisLink}" style="color:${BRAND_PRIMARY};text-decoration:underline;">${devisLink}</a></li>` : ""}
-            <li><strong>Type&nbsp;:</strong> ${type}</li>
-            ${note ? `<li><strong>Note&nbsp;:</strong> ${note}</li>` : ""}
-          </ul>
+            <!-- Bande TOP -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-          <p style="margin:16px 0 0 0;">Merci.</p>
-        </div>
-      </div>
+            <!-- Espace vertical -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
 
-      <!-- Bande BOTTOM (même largeur que le container) -->
-      <div style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;border-radius:8px;">
-      </div>
+            <!-- Carte contenu (padding géré ici, pas sur les bandes) -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;
+                              border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+                      <h1 style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${BRAND_PRIMARY};"></h1>
+                      <p style="margin:0 0 12px 0;">Bonjour, Vous avez reçu une nouvelle commande&nbsp;:</p>
+                      <ul style="margin:0 0 16px 20px;padding:0;">
+                        <li><strong>Client&nbsp;:</strong> ${clientDisplay}</li>
+                        <li><strong>Email&nbsp;:</strong> ${uEmail || "-"}</li>
+                        <li><strong>Téléphone&nbsp;:</strong> ${uTel || "-"}</li>
+                        <li><strong>Type&nbsp;:</strong> ${type}</li>
+                        <li><strong>N° Demande&nbsp;:</strong> ${demandeNumero || demande.numero || demandeId}</li>
+                        ${devisNumero ? `<li><strong>N° Devis&nbsp;:</strong> ${devisNumero}</li>` : ""}
+                        ${note ? `<li><strong>Note&nbsp;:</strong> ${note}</li>` : ""}
+                      </ul>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-    </div>
+            <!-- Espace vertical -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM (identique à TOP) -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      &nbsp;
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`;
+
+
 
     // Destinataires & expéditeur
     const adminToRaw = (process.env.ADMIN_EMAIL || "").trim();

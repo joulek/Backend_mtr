@@ -41,7 +41,7 @@ export const createDevisGrille = async (req, res) => {
       data: f.buffer,
     }));
 
-    // numéro de devis
+    // Numéro de devis (DDVYY#####)
     const year = new Date().getFullYear();
     const counterId = `devis:${year}`;
     const c = await Counter.findOneAndUpdate(
@@ -63,11 +63,9 @@ export const createDevisGrille = async (req, res) => {
     });
 
     // Réponse immédiate
-    res
-      .status(201)
-      .json({ success: true, devisId: devis._id, numero: devis.numero });
+    res.status(201).json({ success: true, devisId: devis._id, numero: devis.numero });
 
-    // Tâches “post” non bloquantes
+    // Post-traitement (PDF + email)
     setImmediate(async () => {
       const toBuffer = (maybeBinary) => {
         if (!maybeBinary) return null;
@@ -86,14 +84,14 @@ export const createDevisGrille = async (req, res) => {
         // 1) PDF
         const pdfBuffer = await buildDevisGrillePDF(full);
 
-        // 2) stocker le PDF
+        // 2) Stocker le PDF
         await DevisGrille.findByIdAndUpdate(
           devis._id,
           { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
           { new: true }
         );
 
-        // 3) pièces jointes
+        // 3) Pièces jointes
         const attachments = [
           {
             filename: `devis-grille-${full._id}.pdf`,
@@ -122,11 +120,11 @@ export const createDevisGrille = async (req, res) => {
         // 4) Email
         const transporter = makeTransport();
 
-        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+        const fullName    = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
         const clientEmail = full.user?.email || "-";
-        const clientTel = full.user?.numTel || "-";
-        const clientAdr = full.user?.adresse || "-";
-        const clientType = full.user?.accountType || "-"; // ✅ ajout type de compte
+        const clientTel   = full.user?.numTel || "-";
+        const clientAdr   = full.user?.adresse || "-";
+        const clientType  = full.user?.accountType || "-"; // type de compte
 
         const human = (n = 0) => {
           const u = ["B", "KB", "MB", "GB"];
@@ -159,36 +157,104 @@ Documents client:
 ${docsList}
 `;
 
-        const htmlBody = `
-<h2>Nouvelle demande de devis – Grille métallique</h2>
-<ul>
-  <li><b>Numéro:</b> ${full.numero}</li>
-  <li><b>Date:</b> ${new Date(full.createdAt).toLocaleString()}</li>
-</ul>
+        // ======= EMAIL HTML (même style bandeau haut/carte/bandeau bas) =======
+        const BRAND_PRIMARY = "#002147"; // titres/liens
+        const BAND_DARK     = "#0B2239"; // bandes bleu marine
+        const BAND_TEXT     = "#FFFFFF"; // texte bandes
+        const PAGE_BG       = "#F5F7FB"; // fond page
+        const CONTAINER_W   = 680;       // largeur conteneur
 
-<h3>Infos client</h3>
-<ul>
-  <li><b>Nom:</b> ${fullName}</li>
-  <li><b>Email:</b> ${clientEmail}</li>
-  <li><b>Téléphone:</b> ${clientTel}</li>
-  <li><b>Adresse:</b> ${clientAdr}</li>
-  <li><b>Type de compte:</b> ${clientType}</li>
-</ul>
+        const htmlBody = `<!doctype html>
+<html>
+  <head>
+    <meta charSet="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${fullName} - ${full.numero}</title>
+  </head>
+  <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:${PAGE_BG};margin:0;padding:24px 16px;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
 
-<h3>Pièces jointes</h3>
-<ul>
-  <li>PDF de la demande: <code>devis-grille-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
-</ul>
+          <!-- Conteneur centré -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:${CONTAINER_W}px;max-width:100%;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
 
-<h3>Documents client</h3>
-<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${docsList}</pre>
-`;
+            <!-- Bande TOP -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Espace -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Carte contenu -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+                      <p style="margin:0 0 12px 0;">Bonjour, Vous avez reçu une <strong>nouvelle demande de devis (grille métallique)</strong>&nbsp;:</p>
+                      <ul style="margin:0 0 16px 20px;padding:0;">
+                        <li><strong>Client&nbsp;:</strong> ${fullName}</li>
+                        <li><strong>Email&nbsp;:</strong> ${clientEmail}</li>
+                        <li><strong>Téléphone&nbsp;:</strong> ${clientTel}</li>
+                        <li><strong>Type&nbsp;:</strong> grille</li>
+                        <li><strong>N° Demande&nbsp;:</strong> ${full.numero}</li>
+                      </ul>
+
+                
+
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Espace -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM (identique à TOP) -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      &nbsp;
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
         await transporter.sendMail({
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `${fullName} - ${full.numero}`, 
+          subject: `${fullName} - ${full.numero}`,
           text: textBody,
           html: htmlBody,
           attachments,
