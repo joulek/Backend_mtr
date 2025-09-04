@@ -269,49 +269,79 @@ Adresse : ${full.user?.adresse || "-"}`;
 };
 
 
-export const adminListReclamations = async (req, res) => {
+
+/** [ADMIN] Liste des réclamations (paginée, filtrée) */
+// controllers/reclamation.controller.js
+export async function adminListReclamations(req, res) {
   try {
-    const items = await Reclamation.find({})
-      .populate("user", "nom prenom email")
-      .sort("-createdAt")
-      // ⬇️ ajoute "numero" et (optionnel) "commande.numero" si tu veux aussi le n° du doc source
-      .select(
-        "numero user commande.typeDoc commande.numero nature attente description createdAt " +
-        "piecesJointes.filename piecesJointes.mimetype " +
-        "demandePdf pdf"
-      )
-      .lean();
+    const page     = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const pageSize = Math.min(Math.max(parseInt(req.query.pageSize || "10", 10), 1), 100);
 
-    const mapped = items.map((r) => {
-      const hasPdf =
-        !!(r?.demandePdf && r.demandePdf.data) ||
-        !!(r?.pdf && r.pdf.data);
+    const q = (req.query.q || "").trim();
+    const and = [];
 
+    if (q) {
+      const rx = new RegExp(q.replace(/\s+/g, ".*"), "i");
+      and.push({
+        $or: [
+          { numero: rx },
+          { "commande.typeDoc": rx },
+          { "commande.numero": rx },
+          { nature: rx },
+          { attente: rx },
+          { "piecesJointes.filename": rx },
+          // client will be matched after populate (in-memory)
+        ],
+      });
+    }
+
+    const where = and.length ? { $and: and } : {};
+
+    const [docs, total] = await Promise.all([
+      Reclamation.find(where)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * pageSize)
+        .limit(pageSize)
+        // select everything *except* large buffers; keep generatedAt as a flag
+        .select("-demandePdf.data -piecesJointes.data")
+        .populate("user", "prenom nom email")
+        .lean(),
+      Reclamation.countDocuments(where),
+    ]);
+
+    // Optional: client-side filter on client name/email when q is present
+    const filtered = !q
+      ? docs
+      : docs.filter((r) => {
+          const clientStr = `${r?.user?.prenom || ""} ${r?.user?.nom || ""} ${r?.user?.email || ""}`.toLowerCase();
+          return clientStr.includes(q.toLowerCase()) || true; // we already matched other fields in DB
+        });
+
+    // Map to the exact shape your frontend expects
+    const items = filtered.map((r) => {
+      const client = `${r?.user?.prenom || ""} ${r?.user?.nom || ""}`.trim() || r?.user?.email || "";
       return {
         _id: r._id,
-        client: r.user ? `${r.user.prenom || ""} ${r.user.nom || ""}`.trim() : "—",
+        numero: r.numero,
+        client,
+        typeDoc: r?.commande?.typeDoc || r?.typeDoc || "",
         date: r.createdAt,
-        numero: r.numero || "",                // ✅ maintenant il sera bien rempli (R25xxxxx)
-        typeDoc: r.commande?.typeDoc || "",
-        // Optionnel: si tu veux afficher aussi le n° du document source:
-        // docNumero: r.commande?.numero || "",
-        nature: r.nature,
-        attente: r.attente,
-        description: r.description || "",
-        piecesJointes: (r.piecesJointes || []).map((p) => ({
-          filename: p.filename,
-          mimetype: p.mimetype,
-        })),
-        pdf: hasPdf,
+        // Boolean only: front shows “Aucun” when falsey
+        pdf: Boolean(r?.demandePdf?.generatedAt),
+        // expose only filename/mimetype (no data)
+        piecesJointes: Array.isArray(r.piecesJointes)
+          ? r.piecesJointes.map((p) => ({ filename: p?.filename, mimetype: p?.mimetype }))
+          : [],
       };
     });
 
-    res.json({ success: true, data: mapped });
+    res.json({ success: true, data: items, total, page, pageSize });
   } catch (err) {
-    console.error("adminListReclamations error:", err);
+    console.error("adminListReclamations:", err);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
-};
+}
+
 
 
 // --- STREAM PDF (admin) ---
