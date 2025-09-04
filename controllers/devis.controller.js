@@ -550,12 +550,42 @@ export const createFromDemande = async (req, res) => {
       const CONTAINER_W = 680;
 
       const subject = `Votre devis ${devis.numero}`;
+
+      // === Ajout: liens des demandes liées (numéro + URL PDF) ===
+      const DEMANDE_ROUTE = {
+        autre: "autre",
+        compression: "compression",
+        traction: "traction",
+        torsion: "torsion",
+        fil: "filDresse",
+        grille: "grille",
+      };
+
+      const demandesLinks = loaded.map((x) => {
+        const seg = DEMANDE_ROUTE[x.type] || x.type;
+        return {
+          numero: x.doc.numero,
+          url: `${ORIGIN}/api/devis/${seg}/${x.doc._id}/pdf`,
+        };
+      });
+
+      const demandesLine = demandesLinks.map((d) => d.numero).join(", ");
+
+      const demandesHtml = demandesLinks.length
+        ? `<p style="margin:0 0 6px 0"><strong>Demande(s) liée(s)&nbsp;:</strong>
+             ${demandesLinks
+               .map(
+                 (d) =>
+                   `<a href="${d.url}" target="_blank" rel="noopener" style="color:#0B1E3A;text-decoration:none">${d.numero}</a>`
+               )
+               .join(" · ")}
+           </p>`
+        : "";
+
       const textBody = `Bonjour${devis.client?.nom ? " " + devis.client.nom : ""},
 
 Veuillez trouver ci-joint votre devis ${devis.numero}.
-Vous pouvez aussi le consulter en ligne : ${pdfUrl}
-
-Cordialement,
+${demandesLine ? "Demandes liées : " + demandesLine + "\n" : ""}Cordialement,
 MTR – Manufacture Tunisienne des ressorts`;
 
       const totalTTC = (devis?.totaux?.mttc ?? 0).toFixed(3);
@@ -607,11 +637,8 @@ MTR – Manufacture Tunisienne des ressorts`;
                       </h1>
 
                       <p style="margin:0 0 12px 0;">Bonjour${devis.client?.nom ? " " + devis.client.nom : ""},</p>
-                      <p style="margin:0 0 16px 0;">Veuillez trouver ci-joint votre devis. Vous pouvez aussi le consulter en ligne&nbsp;:
-                        <a href="${pdfUrl}" style="color:${BRAND_PRIMARY};text-decoration:underline;">${pdfUrl}</a>
-                      </p>
-
-                    
+                      <p style="margin:0 0 16px 0;">Veuillez trouver ci-joint votre devis.</p>
+                      ${demandesHtml}
 
                       <p style="margin:16px 0 0 0;">Cordialement.<br></p>
                     </td>

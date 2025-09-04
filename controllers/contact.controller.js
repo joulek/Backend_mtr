@@ -101,7 +101,7 @@ export async function contactSend(req, res) {
                       <ul style="margin:0 0 16px 20px;padding:0;">
                         <li><strong>Nom&nbsp;:</strong> ${escapeHtml(nom)}</li>
                         <li><strong>Email&nbsp;:</strong> <a href="mailto:${escapeHtml(email)}" style="color:${BRAND_PRIMARY};text-decoration:underline;">${escapeHtml(email)}</a></li>
-                        <li><strong>Sujet&nbsp;:</strong> ${escapeHtml(sujet)}</li>
+                        <li><strong>Objet&nbsp;:</strong> ${escapeHtml(sujet)}</li>
                       </ul>
 
                       <h2 style="margin:16px 0 8px 0;font-size:16px;color:#111827;">Message</h2>
