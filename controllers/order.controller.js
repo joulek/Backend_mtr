@@ -28,7 +28,7 @@ const DEMANDE_MODELS = [
   { type: "grille", Model: DemandeGrille },
 ];
 
-/** Déduit le host à afficher, tout en évitant localhost */
+// Host propre (masque localhost)
 function getSiteHost(req) {
   const fromEnv =
     (process.env.SITE_HOST ||
@@ -50,8 +50,7 @@ function getSiteHost(req) {
     host = clean(host);
   }
 
-  // Masque les hôtes locaux
-  const isLocal = /^(localhost(\:\d+)?|127\.0\.0\.1(\:\d+)?|.+\.local)$/i.test(host);
+  const isLocal = /^(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|.+\.local)$/i.test(host);
   return isLocal ? "" : host;
 }
 
@@ -114,12 +113,13 @@ export async function placeClientOrder(req, res) {
       : (uEmail || "Client");
 
     // Sujet & pièces jointes
-    const subject = `Commande confirmée – ${devisNumero ? `Devis ${devisNumero}` : `Demande ${demandeNumero || demande.numero || demandeId}`}`;
+    const subject =
+      `Commande confirmée – ${devisNumero ? `Devis ${devisNumero}` : `Demande ${demandeNumero || demande.numero || demandeId}`}`;
 
     const devisAttachment = buildAttachmentFromPdfInfo(devisNumero, devisPdf);
     const devisLink = devisPdf || (devisNumero ? `${ORIGIN}/files/devis/${devisNumero}.pdf` : null);
 
-    // Corps texte (fallback)
+    // Texte fallback
     const lines = [
       `Bonjour,`,
       ``,
@@ -137,14 +137,15 @@ export async function placeClientOrder(req, res) {
     ].filter(Boolean);
     const textBody = lines.join("\n");
 
-    // Identité visuelle
-    const BRAND_PRIMARY = "#002147";   // bleu MTR (pour titres)
-    const BAND_BG       = "#EEF3FA";   // ✅ bande très claire (style capture)
-    const BAND_TEXT     = "#002147";   // texte bleu MTR lisible sur fond clair
-    const PAGE_BG       = "#F5F7FB";
-    const SITE_HOST     = getSiteHost(req); // ← renvoie "" si local
+    // Styles & couleurs
+    const BRAND_PRIMARY = "#002147";   // titres/links
+    const BAND_DARK = "#0B2239";   // bleu marine foncé pour les bandes (comme ta capture)
+    const BAND_TEXT = "#FFFFFF";   // texte en blanc dans les bandes foncées
+    const PAGE_BG = "#F5F7FB";   // fond général clair
+    const CONTAINER_W = 680;         // largeur du container
+    const SITE_HOST = getSiteHost(req);
 
-    // Version HTML (bandes claires + titre centré)
+    // HTML : bandes limitées à la largeur du container
     const html = `<!doctype html>
 <html>
   <head>
@@ -153,38 +154,44 @@ export async function placeClientOrder(req, res) {
     <title>${subject}</title>
   </head>
   <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
-    <!-- Bande supérieure (claire + centrée) -->
-    <div style="background:${BAND_BG};color:${BAND_TEXT};padding:16px 20px;font-weight:800;font-size:14px;text-align:center;letter-spacing:.3px;">
-      MTR – Manufacture Tunisienne des ressorts
-    </div>
-
-    <!-- Carte contenu -->
-    <div style="max-width:680px;margin:24px auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-      <div style="padding:24px;">
-        <h1 style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${BRAND_PRIMARY};">
-          ${subject}
-        </h1>
-
-        <p style="margin:0 0 12px 0;">Bonjour,</p>
-        <p style="margin:0 0 16px 0;">Vous avez reçu une nouvelle commande&nbsp;:</p>
-
-        <ul style="margin:0 0 16px 20px;padding:0;">
-          <li><strong>Client&nbsp;:</strong> ${clientDisplay}</li>
-          <li><strong>Email&nbsp;:</strong> ${uEmail || "-"}</li>
-          <li><strong>Téléphone&nbsp;:</strong> ${uTel || "-"}</li>
-          <li><strong>Type&nbsp;:</strong> ${type}</li>
-          ${note ? `<li><strong>Note&nbsp;:</strong> ${note}</li>` : ""}
-          <li><strong>N° Demande&nbsp;:</strong> ${demandeNumero || demande.numero || demandeId}</li>
-          ${devisNumero ? `<li><strong>N° Devis&nbsp;:</strong> ${devisNumero}</li>` : ""}
-          ${devisLink ? `<li><strong>Lien PDF devis&nbsp;:</strong> <a href="${devisLink}" style="color:${BRAND_PRIMARY};text-decoration:underline;">${devisLink}</a></li>` : ""}
-        </ul>
-
-        <p style="margin:16px 0 0 0;">Merci.</p>
+    
+    <!-- Wrapper centré -->
+    <div style="max-width:${CONTAINER_W}px;margin:0 auto;padding:24px 16px;">
+      
+      <!-- Bande TOP (exactement la largeur du container) -->
+      <div style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;border-radius:8px;">
+        MTR – Manufacture Tunisienne des ressorts
       </div>
-    </div>
 
-    <!-- Bande inférieure (claire + centrée) -->
-    <div style="background:${BAND_BG};color:${BAND_TEXT};padding:16px 20px;font-weight:800;font-size:14px;text-align:center;letter-spacing:.3px;">
+      <!-- Carte contenu -->
+      <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-top:16px;">
+        <div style="padding:24px;">
+          <h1 style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:${BRAND_PRIMARY};">
+            ${subject}
+          </h1>
+
+          <p style="margin:0 0 12px 0;">Bonjour,</p>
+          <p style="margin:0 0 16px 0;">Une commande a été confirmée&nbsp;:</p>
+
+          <ul style="margin:0 0 16px 20px;padding:0;">
+            <li><strong>Client&nbsp;:</strong> ${clientDisplay}</li>
+            <li><strong>Email&nbsp;:</strong> ${uEmail || "-"}</li>
+            <li><strong>Téléphone&nbsp;:</strong> ${uTel || "-"}</li>
+            <li><strong>N° Demande&nbsp;:</strong> ${demandeNumero || demande.numero || demandeId}</li>
+            ${devisNumero ? `<li><strong>N° Devis&nbsp;:</strong> ${devisNumero}</li>` : ""}
+            ${devisLink ? `<li><strong>Lien PDF devis&nbsp;:</strong> <a href="${devisLink}" style="color:${BRAND_PRIMARY};text-decoration:underline;">${devisLink}</a></li>` : ""}
+            <li><strong>Type&nbsp;:</strong> ${type}</li>
+            ${note ? `<li><strong>Note&nbsp;:</strong> ${note}</li>` : ""}
+          </ul>
+
+          <p style="margin:16px 0 0 0;">Merci.</p>
+        </div>
+      </div>
+
+      <!-- Bande BOTTOM (même largeur que le container) -->
+      <div style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;border-radius:8px;">
+      </div>
+
     </div>
   </body>
 </html>`;
@@ -198,13 +205,13 @@ export async function placeClientOrder(req, res) {
     const transport = makeTransport();
 
     await transport.sendMail({
-      from,                 // expéditeur
-      to: adminTo,          // admin
-      cc,                   // client en copie si email valide
+      from,
+      to: adminTo,
+      cc,
       replyTo: uEmail || undefined,
       subject,
-      text: textBody,       // fallback texte
-      html,                 // version HTML
+      text: textBody,
+      html,
       attachments: devisAttachment ? [devisAttachment] : [],
     });
 
