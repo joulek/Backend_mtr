@@ -182,38 +182,98 @@ Documents client:
 ${docsList}
 `;
 
-        const htmlBody = `
-<h2>Nouvelle demande de devis – Fil dressé</h2>
-<ul>
-  <li><b>Numéro:</b> ${full.numero}</li>
-  <li><b>Date:</b> ${new Date(full.createdAt).toLocaleString()}</li>
-</ul>
+        // ======= EMAIL HTML (même style bandeau haut/carte/bandeau bas) =======
+        const BRAND_PRIMARY = "#002147"; // titres/liens
+        const BAND_DARK     = "#0B2239"; // bandes bleu marine
+        const BAND_TEXT     = "#FFFFFF"; // texte bandes
+        const PAGE_BG       = "#F5F7FB"; // fond page
+        const CONTAINER_W   = 680;       // largeur conteneur
 
-<h3>Infos client</h3>
-<ul>
-  <li><b>Nom:</b> ${fullName}</li>
-  <li><b>Email:</b> ${clientEmail}</li>
-  <li><b>Téléphone:</b> ${clientTel}</li>
-  <li><b>Adresse:</b> ${clientAdr}</li>
-  <li><b>Type de compte:</b> ${clientType}</li>
-</ul>
+        const htmlBody = `<!doctype html>
+<html>
+  <head>
+    <meta charSet="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${fullName} - ${full.numero}</title>
+  </head>
+  <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:${PAGE_BG};margin:0;padding:24px 16px;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
 
-<h3>Spécifications</h3>
-<ul>
-  <li><b>Longueur:</b> ${full.spec?.longueurValeur} ${full.spec?.longueurUnite}</li>
-  <li><b>Diamètre:</b> ${full.spec?.diametre}</li>
-  <li><b>Quantité:</b> ${full.spec?.quantiteValeur} ${full.spec?.quantiteUnite}</li>
-  <li><b>Matière:</b> ${full.spec?.matiere}</li>
-</ul>
+          <!-- Conteneur centré -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:${CONTAINER_W}px;max-width:100%;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
 
-<h3>Pièces jointes</h3>
-<ul>
-  <li>PDF de la demande: <code>devis-filDresse-${full._id}.pdf</code> (${human(pdfBuffer.length)})</li>
-</ul>
+            <!-- Bande TOP -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
 
-<h3>Documents client</h3>
-<pre style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${docsList}</pre>
-`;
+            <!-- Espace -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Carte contenu -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+                      <p style="margin:0 0 12px 0;">Bonjour, Vous avez reçu une <strong>nouvelle demande de devis (fil dressé)</strong>&nbsp;:</p>
+                      <ul style="margin:0 0 16px 20px;padding:0;">
+                        <li><strong>Client&nbsp;:</strong> ${fullName}</li>
+                        <li><strong>Email&nbsp;:</strong> ${clientEmail}</li>
+                        <li><strong>Téléphone&nbsp;:</strong> ${clientTel}</li>
+                        <li><strong>Type&nbsp;:</strong> fil</li>
+                        <li><strong>N° Demande&nbsp;:</strong> ${full.numero}</li>
+                      </ul>
+
+
+                  
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Espace -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM (même largeur que TOP, même sans texte) -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      &nbsp;
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
         await transporter.sendMail({
           from: process.env.SMTP_USER,

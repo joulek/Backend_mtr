@@ -216,6 +216,8 @@ export const createReclamation = async (req, res) => {
         const replyTo = full.user?.email;
 
         const subject = `Réclamation ${full.numero} – ${fullName}`; // ✅ utilise numero
+
+        // Texte brut (inchangé)
         const text = `Nouvelle réclamation
 
 Numéro : ${full.numero}
@@ -229,21 +231,101 @@ Email   : ${replyTo || "-"}
 Téléphone: ${full.user?.numTel || "-"}
 Adresse : ${full.user?.adresse || "-"}`;
 
-        const html = `<h2>Nouvelle réclamation</h2>
-<ul>
-  <li><b>Numéro:</b> ${full.numero}</li>
-  <li><b>Document:</b> ${full.commande?.typeDoc} ${full.commande?.numero}</li>
-  <li><b>Nature:</b> ${full.nature}</li>
-  <li><b>Attente:</b> ${full.attente}</li>
-  <li><b>Description:</b> ${full.description || "-"}</li>
-</ul>
-<h3>Client</h3>
-<ul>
-  <li><b>Nom:</b> ${fullName}</li>
-  <li><b>Email:</b> ${replyTo || "-"}</li>
-  <li><b>Téléphone:</b> ${full.user?.numTel || "-"}</li>
-  <li><b>Adresse:</b> ${full.user?.adresse || "-"}</li>
-</ul>`;
+        // ======= EMAIL HTML (même style bandeau haut/carte/bandeau bas) =======
+        const BRAND_PRIMARY = "#002147"; // titres/liens
+        const BAND_DARK     = "#0B2239"; // bandes bleu marine
+        const BAND_TEXT     = "#FFFFFF"; // texte bandes
+        const PAGE_BG       = "#F5F7FB"; // fond page
+        const CONTAINER_W   = 680;       // largeur conteneur
+
+        const htmlBody = `<!doctype html>
+<html>
+  <head>
+    <meta charSet="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${subject}</title>
+  </head>
+  <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:${PAGE_BG};margin:0;padding:24px 16px;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
+
+          <!-- Conteneur centré -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:${CONTAINER_W}px;max-width:100%;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+
+            <!-- Bande TOP -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Espace vertical -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Carte contenu -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+
+                      <p style="margin:0 0 12px 0;">Bonjour, Vous avez reçu une nouvelle réclamation&nbsp;:</p>
+
+                      <ul style="margin:0 0 16px 20px;padding:0;">
+                        <li><strong>Numéro&nbsp;:</strong> ${full.numero}</li>
+                        <li><strong>Document&nbsp;:</strong> ${full.commande?.typeDoc || "-"} ${full.commande?.numero || ""}</li>
+                        <li><strong>Nom&nbsp;:</strong> ${fullName}</li>
+                        <li><strong>Email&nbsp;:</strong> ${replyTo || "-"}</li>
+                        <li><strong>Téléphone&nbsp;:</strong> ${full.user?.numTel || "-"}</li>
+                        <li><strong>Adresse&nbsp;:</strong> ${full.user?.adresse || "-"}</li>
+                      </ul>
+
+
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Espace vertical -->
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM (même largeur que TOP, même sans texte) -->
+            <tr>
+              <td style="padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="border-collapse:collapse;border-spacing:0;">
+                  <tr>
+                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      &nbsp;
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
         await transporter.sendMail({
           from: process.env.MAIL_FROM || process.env.SMTP_USER,
@@ -251,7 +333,7 @@ Adresse : ${full.user?.adresse || "-"}`;
           replyTo: replyTo || undefined,
           subject,
           text,
-          html,
+          html: htmlBody,
           attachments,
         });
 
@@ -268,10 +350,7 @@ Adresse : ${full.user?.adresse || "-"}`;
   }
 };
 
-
-
 /** [ADMIN] Liste des réclamations (paginée, filtrée) */
-// controllers/reclamation.controller.js
 export async function adminListReclamations(req, res) {
   try {
     const page     = Math.max(parseInt(req.query.page || "1", 10), 1);
@@ -341,8 +420,6 @@ export async function adminListReclamations(req, res) {
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 }
-
-
 
 // --- STREAM PDF (admin) ---
 export const streamReclamationPdf = async (req, res) => {
