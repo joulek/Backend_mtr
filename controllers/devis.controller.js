@@ -77,6 +77,36 @@ export async function adminPdfByNumero(req, res) {
       .json({ success: false, message: e.message || "Erreur serveur" });
   }
 }
+export async function streamReclamationPdf(req, res) {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: "id invalide" });
+    }
+
+    // inclure le buffer
+    const rec = await Reclamation.findById(id)
+      .select("+demandePdf.data demandePdf.contentType demandePdf.generatedAt");
+
+    if (!rec || !rec.demandePdf?.data?.length) {
+      return res.status(404).json({ success: false, message: "PDF introuvable" });
+    }
+
+    const buf = rec.demandePdf.data;
+    res.setHeader("Content-Type", rec.demandePdf.contentType || "application/pdf");
+    res.setHeader("Content-Length", buf.length);
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "public, max-age=300"); // 5 min
+    res.setHeader("Content-Disposition", `inline; filename="reclamation-${rec._id}.pdf"`);
+
+    // Pas de Range parsing ici (suffit dans 99% des cas pour affichage)
+    return res.end(buf);
+  } catch (err) {
+    console.error("streamReclamationPdf:", err);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+}
+
 
 /** GET /api/devis/numeros-all */
 export const getAllDevisNumeros = async (req, res) => {
