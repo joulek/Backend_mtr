@@ -36,7 +36,7 @@ const app = express();
 /* ---------- Middlewares GLOBAUX (dans le bon ordre) ---------- */
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: "https://frontend-mtr.onrender.com",
     credentials: true,
       methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],   // ← autoriser PUT & PATCH
     allowedHeaders: ["Content-Type", "Authorization"],

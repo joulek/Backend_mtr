@@ -17,7 +17,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ORIGIN =
-  process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
+  process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT }`;
 
 const DEMANDE_MODELS = [
   { type: "autre", Model: DemandeAutre },

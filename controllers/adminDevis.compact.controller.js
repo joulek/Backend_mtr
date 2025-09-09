@@ -1,6 +1,6 @@
 import Devis from "../models/Devis.js";
 
-const ORIGIN = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
+const ORIGIN = process.env.PUBLIC_BACKEND_URL || `http://localhost:${process.env.PORT }`;
 
 /**
  * GET /api/admin/devis/compact?type=all|compression|traction|torsion|fil|grille|autre&q=...&page=1&limit=20
