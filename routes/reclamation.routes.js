@@ -24,18 +24,53 @@ const router = Router();
 /* ------------------------------------------------------------------ */
 
 /** [CLIENT] Mes réclamations (liste, sans buffer PDF) */
+/** [CLIENT] Mes réclamations rapides avec cursor pagination */
+// routes/reclamation.routes.js (extrait)
 router.get("/me", auth, async (req, res) => {
   try {
-    const items = await Reclamation.find({ user: req.user.id })
-      .sort({ createdAt: -1 })
-      .select("-demandePdf.data")
+    const userId = req.user.id;
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
+    const cursor = (req.query.cursor || "").trim();
+
+    // ✔️ On inclut maintenant les champs attendus par le front
+    //    - champs racine (numero, nature, attente, status, createdAt, updatedAt)
+    //    - champs imbriqués: commande.typeDoc, commande.numero
+    //    - état du PDF: demandePdf.generatedAt
+    const PROJECTION = [
+      "numero",
+      "nature",
+      "attente",
+      "status",
+      "createdAt",
+      "updatedAt",
+      "commande.typeDoc",
+      "commande.numero",
+      "demandePdf.generatedAt",
+    ].join(" ");
+
+    const filter = { user: userId };
+    if (cursor && mongoose.isValidObjectId(cursor)) {
+      filter._id = { $lt: new mongoose.Types.ObjectId(cursor) };
+    }
+
+    const rows = await Reclamation.find(filter)
+      .sort({ _id: -1 })
+      .limit(limit + 1)
+      .select(PROJECTION)
       .lean();
-    res.json({ success: true, items });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? String(items[items.length - 1]._id) : null;
+
+    res.json({ success: true, items, nextCursor });
   } catch (err) {
     console.error("GET /reclamations/me error:", err);
     res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
+
+
 
 /** [CLIENT] Créer une réclamation */
 router.post("/", auth, createReclamation);

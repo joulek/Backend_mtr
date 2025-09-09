@@ -74,6 +74,8 @@ function normalizeItem(req, doc, slug, label) {
  * GET /api/mes-devis
  * -> liste paginée des devis du client connecté
  * --------------------------------------------------------- */
+// routes/mesDevis.js  — استبدل بلوك GET /api/mes-devis بهذا
+
 router.get("/mes-devis", auth, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -86,42 +88,135 @@ router.get("/mes-devis", auth, async (req, res) => {
     const oid = mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(userId) : null;
     const who = oid || userId;
 
-    // Plusieurs champs possibles selon les modèles
-    const ownerOr = [{ user: who }, { userId: who }, { client: who }, { createdBy: who }, { owner: who }];
-    const textOr = q ? TEXT_FIELDS.map((f) => ({ [f]: { $regex: q, $options: "i" } })) : null;
+    // حقول المرجع المحتملة (نستعمل coalesce داخل الـ$project)
+    const REF_FIELDS = [
+      "ref","reference","numero","num","code","quoteRef","quoteNo","requestNumber",
+    ];
 
-    const perType = await Promise.all(
-      Object.entries(TYPES).map(async ([slug, { Model, label }]) => {
-        const filter = { $or: ownerOr };
-        if (textOr) filter.$and = [{ $or: textOr }];
+    // حقول البحث النصي المحتملة
+    const TEXT_FIELDS = [
+      "subject","message","comments","description","notes",
+      ...REF_FIELDS
+    ];
 
-        // On ne ramène PAS les buffers ici (pour alléger la liste)
-        const rows = await Model.find(filter)
-          .select(
-            [
-              "createdAt",
-              "updatedAt",
-              ...REF_FIELDS,
-              // méta des pièces jointes
-              "documents._id",
-              "documents.filename",
-              "documents.mimetype",
-              // méta du PDF (sans le buffer)
-              "demandePdf.contentType",
-            ].join(" ")
-          )
-          .lean();
+    // regex للبحث (اختياري)
+    const rx = q ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
 
-        return rows.map((r) => normalizeItem(req, r, slug, label));
-      })
-    );
+    // نبني pipeline قياسي لموديل واحد (يُعاد استعماله في unionWith)
+    const perModelPipe = (slug) => ([
+      // اجمع owner: coalesce (user, userId, client, createdBy, owner)
+      { $addFields: {
+          __owner: {
+            $ifNull: [
+              "$user",
+              { $ifNull: ["$userId",
+                { $ifNull: ["$client",
+                  { $ifNull: ["$createdBy", "$owner"] }
+                ]}
+              ]}
+            ]
+          }
+        }
+      },
+      { $match: { __owner: who } },
 
-    const merged = perType.flat().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const total = merged.length;
-    const start = (page - 1) * pageSize;
-    const items = merged.slice(start, start + pageSize);
+      // تصفية بحث نصي خفيف (على الحقول النصية إن توفّرت)
+      ...(rx ? [{
+        $match: {
+          $or: TEXT_FIELDS.map(f => ({ [f]: { $regex: rx, $options: "i" } }))
+        }
+      }] : []),
 
-    res.json({ items, total, page, pageSize });
+      // hasPdf (يكفي contentType)، احتفظ فقط بالميتا
+      { $project: {
+          createdAt: 1, updatedAt: 1,
+          documents: { _id: 1, filename: 1, mimetype: 1 }, // بدون data
+          "demandePdf.contentType": 1,
+          // مرجع مدموج (أول قيمة non-null)
+          __ref: {
+            $ifNull: [
+              "$ref","$reference","$numero","$num","$code","$quoteRef","$quoteNo","$requestNumber", null
+            ]
+          }
+        }
+      },
+
+      // طبّق شكل موحّد للعناصر
+      { $addFields: {
+          _type: slug,
+          _hasPdf: { $toBool: "$demandePdf.contentType" }
+        }
+      }
+    ]);
+
+    // الكلكشن الأساسي + unionWith لبقية الأنواع
+    // نختار أي موديل كـ"أساس". هنا: DevisGrille (ينجم يكون أي واحد).
+    const baseSlug = "grille";
+    const unionSlugs = Object.keys(TYPES).filter(s => s !== baseSlug);
+
+    const pipeline = [
+      ...perModelPipe(baseSlug),
+
+      // unionWith لكل موديل
+      ...unionSlugs.flatMap(slug => ([
+        { $unionWith: {
+            coll: mongoose.model(TYPES[slug].Model.modelName).collection.name,
+            pipeline: perModelPipe(slug)
+          }
+        }
+      ])),
+
+      // sort عام
+      { $sort: { createdAt: -1 } },
+
+      // pagination + total
+      { $facet: {
+          total: [{ $count: "n" }],
+          items: [
+            { $skip: (page - 1) * pageSize },
+            { $limit: pageSize }
+          ]
+        }
+      },
+      { $project: {
+          items: 1,
+          total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] }
+        }
+      }
+    ];
+
+    // شغّل التجميعة على أي موديل (لازم نفس الداتابيز)
+    const baseModel = TYPES[baseSlug].Model;
+    const aggResult = await baseModel.aggregate(pipeline).allowDiskUse(true);
+    const { items = [], total = 0 } = aggResult[0] || {};
+
+    // صيّغ العناصر للـAPI (إضافة روابط)
+    const ORIGIN = `${req.protocol}://${req.get("host")}`;
+    const cooked = items.map((it) => {
+      const slug = it._type;
+      const label = TYPES[slug]?.label || slug;
+      const base = `${ORIGIN}/api/mes-devis/${slug}/${it._id}`;
+
+      return {
+        _id: String(it._id),
+        type: slug,
+        typeLabel: label,
+        ref: it.__ref || null,
+        hasPdf: !!it._hasPdf,
+        pdfUrl: it._hasPdf ? `${base}/pdf` : null,
+        files: Array.isArray(it.documents)
+          ? it.documents.map(d => ({
+              _id: String(d._id),
+              name: d.filename || `document-${d._id}`,
+              url: `${base}/doc/${d._id}`,
+            }))
+          : [],
+        createdAt: it.createdAt,
+        updatedAt: it.updatedAt
+      };
+    });
+
+    res.json({ items: cooked, total, page, pageSize });
   } catch (err) {
     console.error("GET /api/mes-devis error:", err);
     res.status(500).json({ message: "Server error" });

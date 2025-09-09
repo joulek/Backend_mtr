@@ -14,68 +14,54 @@ const router = Router();
 router.get("/whoami", auth, (req, res) => {
   res.json({ id: req.user.id, role: req.user.role });
 });
+/** POST /api/auth/login */
 router.post("/login", async (req, res) => {
   try {
-    const { email, password, rememberMe } = req.body; // ← NEW
+    const { email = "", password = "", rememberMe = false } = req.body || {};
+    const user = await User.findOne({ email }).lean();
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Email ou mot de passe invalide." });
+    }
 
-    const user = await User.findOne({ email }).select("+passwordHash");
-    if (!user) return res.status(400).json({ message: "Identifiants invalides" });
+    const ok = await bcrypt.compare(password, user.password || "");
+    if (!ok) {
+      return res.status(401).json({ success: false, message: "Email ou mot de passe invalide." });
+    }
 
-    const ok = await bcrypt.compare(password, user.passwordHash || "");
-    if (!ok) return res.status(400).json({ message: "Identifiants invalides" });
-
-    // Durée JWT selon rememberMe
-    const jwtTtl = rememberMe ? "30d" : "1d";
-
+    // 1) جهّز التوكن
     const token = jwt.sign(
-      { id: user._id, role: user.role },
+      { id: user._id, role: user.role || "client" },
       process.env.JWT_SECRET,
-      { expiresIn: jwtTtl }
+      { expiresIn: rememberMe ? "30d" : "1d" }
     );
 
-    // Base cookies
-    const baseCookie = {
+    // 2) حضّر الكوكيز
+    const cookieOpts = {
       httpOnly: true,
-      sameSite: "lax",                              // "none" si domaines différents + HTTPS
       secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
       path: "/",
+      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000, // ms
     };
 
-    // Cookie du token
-    // - session cookie si !rememberMe (pas de maxAge)
-    // - 30 jours si rememberMe
-    const tokenCookieOpts = rememberMe
-      ? { ...baseCookie, maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 jours
-      : baseCookie;
+    // 3) حطّ الكوكيز
+    res.cookie("token", token, cookieOpts);
+    res.cookie("role", user.role || "client", { ...cookieOpts, httpOnly: false });
 
-    res.cookie("token", token, tokenCookieOpts);
-
-    // Cookie role (non-HttpOnly, utile côté front si tu l’utilises)
-    const roleCookieOpts = {
-      sameSite: tokenCookieOpts.sameSite,
-      secure: tokenCookieOpts.secure,
-      path: tokenCookieOpts.path,
-      ...(rememberMe ? { maxAge: tokenCookieOpts.maxAge } : {}), // session si non coché
-    };
-    res.cookie("role", user.role, roleCookieOpts);
-
-    // Nettoyage & dernière connexion
-    const { passwordHash, ...safeUser } = user.toObject();
-    user.lastLogin = new Date();
-    await user.save();
-
-    // Réponse (sans token, on s'appuie sur le cookie HttpOnly)
-    res.json({
+    // 4) رجّع body فيه token (مهم للبروكسي Next)
+    const { password: _pw, resetPassword, ...safeUser } = user;
+    return res.json({
       success: true,
-      role: user.role,
+      role: user.role || "client",
+      token,                  // ⬅️ البروكسي يستعملها باش يركّب كوكيز محليًّا
       user: safeUser,
     });
-
   } catch (err) {
     console.error("login ERROR:", err);
-    res.status(500).json({ message: "Erreur serveur" });
+    return res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
+
 router.post("/check-email", checkEmailExists);
 
 
