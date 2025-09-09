@@ -174,20 +174,19 @@ export const whoami = async (req, res) => {
 // routes/auth.js
 
 
-
-
 // 🚀 Ex-forgot: envoie un CODE (pas de lien)
 export const requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body ?? {};
     if (!email) return res.status(400).json({ message: "Email requis" });
 
-    const user = await User.findOne({ email }).select("+passwordReset.codeHash +passwordReset.expiresAt +passwordReset.lastSentAt");
-    if (!user) {
-      return res.json({ message: NEUTRAL });
-    }
+    const user = await User.findOne({ email }).select(
+      "+passwordReset.codeHash +passwordReset.expiresAt +passwordReset.lastSentAt"
+    );
+    // réponse neutre pour ne pas leak l'existence du compte
+    if (!user) return res.json({ message: NEUTRAL });
 
-    // anti-spam
+    // anti-spam (cooldown)
     const last = user.passwordReset?.lastSentAt?.getTime?.() || 0;
     if (Date.now() - last < COOLDOWN_MS) {
       return res.json({ message: NEUTRAL });
@@ -197,29 +196,114 @@ export const requestPasswordReset = async (req, res) => {
     const rawCode = user.createPasswordResetCode(10, 6);
     await user.save();
 
+    // ⚠️ on garde ton transporteur nodemailer
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || "smtp.gmail.com",
       port: Number(process.env.SMTP_PORT || 587),
       secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
 
-    const pretty = rawCode.replace(/(\d{3})(\d{3})/, "$1 $2");
+    const pretty = String(rawCode).replace(/(\d{3})(\d{3})/, "$1 $2");
+    const fullName = [user.prenom, user.nom].filter(Boolean).join(" ") || "client";
+    const subject = "Code de réinitialisation";
+
+    // design identique à l'email de contact + CODE CENTRÉ
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charSet="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${subject}</title>
+  </head>
+  <body style="margin:0;background:#F5F7FB;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:#F5F7FB;margin:0;padding:24px 16px;border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
+
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:680px;max-width:100%;border-collapse:collapse;">
+
+            <!-- Bande TOP -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="background:#0B2239;color:#FFFFFF;text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Carte contenu -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+                      <h1 style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:#002147;">
+                        Code de réinitialisation
+                      </h1>
+
+                      <p style="margin:0 0 8px 0;">Bonjour ${fullName},</p>
+                      <p style="margin:0 0 16px 0;">Voici votre <strong>code de réinitialisation</strong>&nbsp;:</p>
+
+                      <!-- 🔥 CODE CENTRÉ, compatible Gmail/Outlook -->
+                      <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:12px auto;">
+                        <tr>
+                          <td style="padding:0;text-align:center;">
+                            <div style="font-weight:800;font-size:28px;letter-spacing:8px;line-height:1.2;
+                                        padding:14px 16px;border:1px dashed #d1d5db;border-radius:10px;
+                                        display:inline-block;">
+                              ${pretty}
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <p style="margin:16px 0 0 0;">Ce code est valable <strong>10 minutes</strong>.</p>
+                      <p style="margin:8px 0 0 0;color:#374151;">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="background:#0B2239;color:#FFFFFF;text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">&nbsp;</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
     await transporter.sendMail({
       to: user.email,
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
-      subject: "Code de réinitialisation",
-      html: `
-        <p>Bonjour ${user.prenom || user.nom || "client"},</p>
-        <p>Voici votre <strong>code de réinitialisation</strong> :</p>
-        <p style="font-size:20px;letter-spacing:3px;"><strong>${pretty}</strong></p>
-        <p>Ce code est valable <strong>10 minutes</strong>.</p>
-        <p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
-      `,
+      subject,
+      html,
     });
 
     return res.json({ message: NEUTRAL });
@@ -228,6 +312,7 @@ export const requestPasswordReset = async (req, res) => {
     return res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
 
 // 🚀 Nouveau: vérifie le CODE et change le mot de passe
 export const resetPasswordWithCode = async (req, res) => {

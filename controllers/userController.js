@@ -59,6 +59,7 @@ export const listUsers = async (req, res) => {
 
 
 /* ================== INVITER UN UTILISATEUR (lien) ================== */
+/* ================== INVITER UN UTILISATEUR (lien) ================== */
 export const inviteUser = async (req, res) => {
   try {
     let {
@@ -100,30 +101,120 @@ export const inviteUser = async (req, res) => {
     const locale = "fr";
     const setPwdLink = `${appUrl}/${locale}/set-password?uid=${user._id}&token=${rawToken}`;
 
-    // Envoi mail
+    // Envoi mail (on garde ton transporteur)
     let emailResult = { sent:false };
     try {
       const transport = makeTransport();
       const from = process.env.MAIL_FROM || process.env.SMTP_USER;
 
+      const subject = "Activez votre compte MTR Industrie";
+
+      // --- HTML: même design que contact / reset, lien brut SUPPRIMÉ, textes en bleu ---
+      const html = `<!doctype html>
+<html>
+  <head>
+    <meta charSet="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${subject}</title>
+  </head>
+  <body style="margin:0;background:#F5F7FB;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+           style="width:100%;background:#F5F7FB;margin:0;padding:24px 16px;border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:0;margin:0;">
+
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
+                 style="width:680px;max-width:100%;border-collapse:collapse;">
+
+            <!-- Bande TOP -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="background:#0B2239;color:#FFFFFF;text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">
+                      MTR – Manufacture Tunisienne des ressorts
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Carte contenu -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
+                  <tr>
+                    <td style="padding:24px;">
+                      <h1 style="margin:0 0 12px 0;font-size:18px;line-height:1.35;color:#002147;">
+                        Activez votre compte
+                      </h1>
+
+                      <p style="margin:0 0 8px 0;color:#002147;">Bonjour ${[prenom, nom].filter(Boolean).join(" ") || "et bienvenue"},</p>
+                      <p style="margin:0 0 16px 0;color:#002147;">
+                        Un administrateur vous a créé un compte sur <strong style="color:#002147;">MTR Manufacture Tunisienne des Ressorts</strong>.
+                      </p>
+                      <p style="margin:0 0 16px 0;">Cliquez sur le bouton ci-dessous pour définir votre mot de passe. Le lien est valable <strong>${ttlInviteHours}h</strong>.</p>
+
+                      <!-- Bouton centré -->
+                      <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:10px auto 6px;">
+                        <tr>
+                          <td align="center">
+                            <a href="${setPwdLink}" style="display:inline-block;background:#0B1E3A;color:#ffffff;
+                                       padding:12px 18px;border-radius:10px;text-decoration:none;
+                                       font-weight:700;">Définir mon mot de passe</a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- (lien brut supprimé comme demandé) -->
+
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
+
+            <!-- Bande BOTTOM -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="background:#0B2239;color:#FFFFFF;text-align:center;
+                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
+                               border-radius:8px;box-sizing:border-box;width:100%;">&nbsp;</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+      // texte brut (conservé pour compatibilité client mail sans HTML)
+      const text = `Bonjour ${prenom || ""} ${nom || ""},
+Un administrateur vous a créé un compte sur MTR Manufacture Tunisienne des Ressorts.
+Définissez votre mot de passe (valable ${ttlInviteHours}h). Ouvrez cet email en mode HTML si le bouton n'apparaît pas.
+`;
+
       await transport.sendMail({
         from,
         to: email,
-        subject: "Activez votre compte MTR Industry",
-        html: `
-          <p>Bonjour <b>${prenom || ""} ${nom || ""}</b>,</p>
-          <p>Un administrateur vous a créé un compte sur <b>MTR Industry</b>.</p>
-          <p>Cliquez sur ce bouton pour définir votre mot de passe (valable ${ttlInviteHours}h) :</p>
-          <p><a href="${setPwdLink}" style="display:inline-block;background:#0B1E3A;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Définir mon mot de passe</a></p>
-          <p>Si le bouton ne s'affiche pas, copiez/collez ce lien :</p>
-          <p><code>${setPwdLink}</code></p>
-        `,
-        text: `Bonjour ${prenom || ""} ${nom || ""},
-Un administrateur vous a créé un compte sur MTR Industry.
-Définissez votre mot de passe (valable ${ttlInviteHours}h) :
-${setPwdLink}
-`,
+        subject,
+        html,
+        text,
       });
+
       emailResult.sent = true;
     } catch (e) {
       console.error("inviteUser mail error:", e?.response || e?.message || e);
@@ -136,6 +227,8 @@ ${setPwdLink}
     return res.status(500).json({ success:false, message:"Erreur serveur" });
   }
 };
+
+
 
 /* ============= DÉFINIR LE MOT DE PASSE (à partir du lien) ============= */
 export const setPassword = async (req, res) => {
