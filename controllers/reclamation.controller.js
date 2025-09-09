@@ -10,6 +10,36 @@ const toDate = (v) => (v ? new Date(v) : undefined);
 const toInt = (v) =>
   v === undefined || v === null || v === "" ? undefined : Number(v);
 
+const isOther = (v) =>
+  /^autre?s?$/i.test(String(v || "").trim()) || /^other$/i.test(String(v || "").trim());
+
+const safe = (s = "") => {
+  const v = String(s ?? "").trim();
+  return v || "-";
+};
+
+// récupère la 1ère clé non vide parmi plusieurs alias envoyés par le front
+function pickPreciseField(obj, keys) {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") {
+      return String(v).trim();
+    }
+  }
+  return undefined;
+}
+
+// fallback: extraction depuis description "Précisez la nature: X | Précisez votre attente: Y"
+function extractFromDescription(desc = "") {
+  const s = String(desc || "");
+  const mNature  = s.match(/Précisez\s+la\s+nature\s*:\s*([^|]+?)(?:\||$)/i);
+  const mAttente = s.match(/Précisez\s+votre\s+attente\s*:\s*([^|]+?)(?:\||$)/i);
+  return {
+    natureTxt:  mNature  ? mNature[1].trim()  : undefined,
+    attenteTxt: mAttente ? mAttente[1].trim() : undefined,
+  };
+}
+
 export const createReclamation = async (req, res) => {
   try {
     // 0) auth
@@ -28,6 +58,10 @@ export const createReclamation = async (req, res) => {
       attente,
       description,
       piecesJointes = [];
+
+    // on lira aussi ces champs si le front les envoie
+    let precisezNature;
+    let precisezAttente;
 
     if (isMultipart) {
       commande = {
@@ -48,6 +82,35 @@ export const createReclamation = async (req, res) => {
       attente = req.body.attente;
       description = req.body.description;
 
+      // textes libres si présents
+      precisezNature = pickPreciseField(req.body, [
+        "precisezNature",
+        "natureAutre",
+        "natureTexte",
+        "nature_precise",
+        "preciseNature",
+        "prcNature",
+      ]);
+      precisezAttente = pickPreciseField(req.body, [
+        "precisezAttente",
+        "attenteAutre",
+        "attenteTexte",
+        "attente_precise",
+        "preciseAttente",
+        "prcAttente",
+      ]);
+
+      // si Autre → remplacer par le texte libre
+      if (isOther(nature)  && precisezNature)  nature  = precisezNature;
+      if (isOther(attente) && precisezAttente) attente = precisezAttente;
+
+      // fallback depuis description si nécessaire
+      if (isOther(nature) || isOther(attente)) {
+        const { natureTxt, attenteTxt } = extractFromDescription(description);
+        if (isOther(nature)  && !precisezNature  && natureTxt)  nature  = natureTxt;
+        if (isOther(attente) && !precisezAttente && attenteTxt) attente = attenteTxt;
+      }
+
       const files = Array.isArray(req.files) ? req.files : [];
       piecesJointes = files.map((f) => ({
         filename: f.originalname,
@@ -67,6 +130,19 @@ export const createReclamation = async (req, res) => {
       nature = b.nature;
       attente = b.attente;
       description = b.description;
+
+      // textes libres si présents
+      precisezNature  = pickPreciseField(b, ["precisezNature","natureAutre","natureTexte","nature_precise"]);
+      precisezAttente = pickPreciseField(b, ["precisezAttente","attenteAutre","attenteTexte","attente_precise"]);
+
+      if (isOther(nature)  && precisezNature)  nature  = precisezNature;
+      if (isOther(attente) && precisezAttente) attente = precisezAttente;
+
+      if (isOther(nature) || isOther(attente)) {
+        const { natureTxt, attenteTxt } = extractFromDescription(description);
+        if (isOther(nature)  && !precisezNature  && natureTxt)  nature  = natureTxt;
+        if (isOther(attente) && !precisezAttente && attenteTxt) attente = attenteTxt;
+      }
 
       if (Array.isArray(b.piecesJointes)) {
         piecesJointes = b.piecesJointes.map((p) =>
@@ -135,8 +211,8 @@ export const createReclamation = async (req, res) => {
       numero, // ✅ auto-incrément
       user: req.user.id,
       commande,
-      nature,
-      attente,
+      nature,      // ← peut être texte libre si Autre
+      attente,     // ← idem
       description,
       piecesJointes,
     });
