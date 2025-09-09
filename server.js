@@ -116,7 +116,7 @@ app.use((err, req, res, next) => {
 });
 
 /* ---------------------- Start ---------------------- */
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT ;
 const server = app.listen(PORT, () =>
   console.log(`🚀 Server running on http://localhost:${PORT}`)
 );
