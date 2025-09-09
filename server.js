@@ -36,9 +36,9 @@ const app = express();
 /* ---------- Middlewares GLOBAUX (dans le bon ordre) ---------- */
 app.use(
   cors({
-    origin: "https://frontend-mtr.onrender.com",
+    origin: true,           // يردّ نفس Origin
     credentials: true,
-      methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],   // ← autoriser PUT & PATCH
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -52,6 +52,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Static
 app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
+
 
 /* ---------------------- MongoDB ---------------------- */
 const MONGO_URI =

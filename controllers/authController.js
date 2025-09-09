@@ -9,28 +9,33 @@ const NEUTRAL = "Si un compte existe, un email a été envoyé.";
 const COOLDOWN_MS = 60 * 1000; // anti-spam envoi code (60s)
 /** Utilitaire commun pour poser les cookies */
 // controllers/authController.js
+// controllers/authController.js
 export function clearAuthCookies(res) {
-  const common = { path: "/", sameSite: "lax", secure: process.env.NODE_ENV === "production" };
+  const isProd = process.env.NODE_ENV === "production";
+  const common = {
+    path: "/",
+    sameSite: "lax",      // مع proxy (same-origin) كافي
+    secure: isProd,       // لازم true على Render/HTTPS
+  };
   res.clearCookie("token", common);
   res.clearCookie("role", common);
 }
 
-
-// controllers/authController.js
-function setAuthCookies(res, { token, role, remember }) {
-  const common = {
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+export function setAuthCookies(res, { token, role, remember }) {
+  const isProd = process.env.NODE_ENV === "production";
+  const base = {
     path: "/",
+    sameSite: "lax",      // لو قررت تلغي proxy وتخلي cross-site: بدّلها إلى "none"
+    secure: isProd,
   };
 
-  // ⏱ durée: 30 jours si remember, sinon cookie de session (pas de maxAge)
-  const opts = remember ? { ...common, maxAge: 30 * 24 * 60 * 60 * 1000 } : common;
+  const withAge = remember ? { ...base, maxAge: 30 * 24 * 60 * 60 * 1000 } : base;
 
-  res.cookie("token", token, { httpOnly: true, ...opts });
-  res.cookie("role", role, { httpOnly: false, ...opts });
+  // توكن محمي بالـ HTTP-only
+  res.cookie("token", token, { ...withAge, httpOnly: true });
+  // دور المستخدم (اختياري) غير محمي (علشان تستعمله في الواجهة بسهولة)
+  res.cookie("role", role || "client", { ...withAge, httpOnly: false });
 }
-
 
 export const registerClient = async (req, res) => {
   try {

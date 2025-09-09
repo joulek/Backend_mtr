@@ -18,43 +18,41 @@ router.get("/whoami", auth, (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email = "", password = "", rememberMe = false } = req.body || {};
-    const user = await User.findOne({ email }).lean();
+
+    // نجيبو الحقول الحسّاسة وقت اللوجين (حتى لو schema عامل select:false)
+    const user = await User.findOne({ email })
+      .select("+passwordHash +password +role")
+      .lean();
+
     if (!user) {
       return res.status(401).json({ success: false, message: "Email ou mot de passe invalide." });
     }
 
-    const ok = await bcrypt.compare(password, user.password || "");
+    // نقارن ضد passwordHash (أو password القديم كان موجود)
+    const ok = await bcrypt.compare(password, user.passwordHash || user.password || "");
     if (!ok) {
       return res.status(401).json({ success: false, message: "Email ou mot de passe invalide." });
     }
 
-    // 1) جهّز التوكن
+    // نولّد JWT
     const token = jwt.sign(
       { id: user._id, role: user.role || "client" },
       process.env.JWT_SECRET,
       { expiresIn: rememberMe ? "30d" : "1d" }
     );
 
-    // 2) حضّر الكوكيز
-    const cookieOpts = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000, // ms
-    };
+    // نحطّ الكوكيز (HTTP-only) – sameSite:"lax" يخدم مليح مع proxy (same-origin)
+    setAuthCookies(res, {
+      token,
+      role: user.role || "client",
+      remember: !!rememberMe,
+    });
 
-    // 3) حطّ الكوكيز
-    res.cookie("token", token, cookieOpts);
-    res.cookie("role", user.role || "client", { ...cookieOpts, httpOnly: false });
-
-    // 4) رجّع body فيه token (مهم للبروكسي Next)
-    const { password: _pw, resetPassword, ...safeUser } = user;
+    const { password: _pw, passwordHash: _ph, ...safe } = user;
     return res.json({
       success: true,
       role: user.role || "client",
-      token,                  // ⬅️ البروكسي يستعملها باش يركّب كوكيز محليًّا
-      user: safeUser,
+      user: safe,
     });
   } catch (err) {
     console.error("login ERROR:", err);
@@ -70,5 +68,4 @@ router.post("/logout", (req, res) => {
   clearAuthCookies(res);
   res.json({ success: true, message: "Déconnecté" });
 });
-
 export default router;

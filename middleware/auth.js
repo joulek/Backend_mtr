@@ -1,29 +1,21 @@
 // middleware/auth.js
 import jwt from "jsonwebtoken";
 
+// middleware/auth.js
 export default function auth(req, res, next) {
-  // 1) خذ التوكن من Authorization أو من الكوكي
-  let token = null;
-  const authHeader = req.headers.authorization || "";
-  if (authHeader.startsWith("Bearer ")) {
-    token = authHeader.slice(7);
-  } else if (req.cookies?.token) {
-    token = req.cookies.token;
-  }
-
-  if (!token) return res.status(401).json({ error: "Token manquant" });
-
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const userId = decoded.sub || decoded.id || decoded._id || decoded.userId;
-    if (!userId) return res.status(401).json({ error: "ID utilisateur manquant dans le token" });
+    // نقرأ الكوكي token (HTTP-only)
+    const token = req.cookies?.token;
+    if (!token) return res.status(401).json({ message: "Non authentifié" });
 
-    req.user = { id: userId, role: decoded.role };
-    return next();
-  } catch {
-    return res.status(401).json({ error: "Token invalide ou expiré" });
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = { id: payload.id, role: payload.role || "client" };
+    next();
+  } catch (e) {
+    return res.status(401).json({ message: "Session invalide" });
   }
 }
+
 
 export function only(...roles) {
   return (req, res, next) => {
