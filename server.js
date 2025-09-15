@@ -5,9 +5,6 @@ import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
-
-import authRegisterRoutes from "./routes/auth.routes.js"; // register-client / register-admin
-import authLoginRoutes from "./routes/auth.js"; // login / logout (cookies HTTP-only)
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
 import adminDevisRoutes from "./routes/admin.devis.routes.js";
@@ -70,14 +67,12 @@ app.get("/", (_, res) => res.send("API OK"));
 app.use("/api/categories", categoryRoutes);
 
 // Authentification
-app.use("/api/auth", authRegisterRoutes); // Inscription
-app.use("/api/auth", authLoginRoutes); // Connexion / Déconnexion
-app.use("/api/auth", authRoutes); // (si endpoints supplémentaires)
+app.use("/api/auth", authRoutes);
 app.use(
   "/files/devis",
   express.static(path.resolve(process.cwd(), "storage/devis"))
 );
-
+app.get("/apple-touch-icon.png", (_,res)=>res.status(204).end()); // optionnel: silence l’icône
 // Ressources
 app.use("/api/produits", ProductRoutes);
 app.use("/api/articles", ArticleRoutes);
