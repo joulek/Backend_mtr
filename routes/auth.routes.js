@@ -6,16 +6,14 @@ import User from "../models/User.js";
 import auth from "../middleware/auth.js";
 
 import {
-  // inscriptions & resets
   registerClient,
   registerAdmin,
   requestPasswordReset,
   resetPasswordWithCode,
   setPassword,
-  // utilitaires auth
   checkEmailExists,
-  setAuthCookies,     // << tu l’utilisais sans l’importer
-  clearAuthCookies,   // idem
+  setAuthCookies,   // <- utilisé au login
+  clearAuthCookies, // <- utilisé au logout
 } from "../controllers/authController.js";
 
 const router = Router();
