@@ -20,7 +20,7 @@ import ProductRoutes from "./routes/product.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import ArticleRoutes from "./routes/article.routes.js";
 import reclamationRoutes from "./routes/reclamation.routes.js";
-import auth from "./middleware/auth.js";
+import auth from "./middlewares/auth.js";
 import mesDemandesDevisRoutes from "./routes/mesDemandesDevis.js";
 import devisRoutes from "./routes/devis.routes.js";
 import clientOrderRoutes from "./routes/client.order.routes.js";
