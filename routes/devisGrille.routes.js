@@ -1,27 +1,17 @@
 // routes/devisGrille.routes.js
 import { Router } from "express";
-import multer from "multer";
 import auth, { only } from "../middleware/auth.js";
-
-import DevisGrille from "../models/DevisGrille.js";           // ← بدّل الاسم إذا موديلك يختلف
+import DevisGrille from "../models/DevisGrille.js";
 import { createDevisGrille } from "../controllers/devisGrille.controller.js";
+import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ Cloudinary
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
-
-function toBuffer(maybe) {
-  if (!maybe) return null;
-  if (Buffer.isBuffer(maybe)) return maybe;
-  if (maybe?.type === "Buffer" && Array.isArray(maybe?.data)) return Buffer.from(maybe.data);
-  if (maybe?.buffer && Buffer.isBuffer(maybe.buffer)) return Buffer.from(maybe.buffer);
-  try { return Buffer.from(maybe); } catch { return null; }
-}
 
 /**
  * GET /api/devis/grille/paginated?q=&page=&pageSize=
- * - pagination + search على (numero/nom/prenom)
- * - batch $lookup نحو collection "devis" بالـ kind:"grille" (تفادي N+1)
- * - يرجّع hasDemandePdf + documents (filename/size فقط)
+ * - pagination + recherche (numero/nom/prenom)
+ * - lookup vers devis(kind:"grille")
+ * - projection légère (pas de binaire)
  */
 router.get("/paginated", auth, only("admin"), async (req, res) => {
   try {
@@ -36,51 +26,32 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
       { $unwind: { path: "$u", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
-          clientFull: { $trim: { input: { $concat: [{ $ifNull:["$u.prenom",""] }," ",{ $ifNull:["$u.nom",""] }] } } }
+          clientFull: {
+            $trim: { input: { $concat: [{ $ifNull: ["$u.prenom",""] }, " ", { $ifNull: ["$u.nom",""] }] } }
+          }
         }
       },
       ...(regex ? [{ $match: { $or: [{ numero: regex }, { clientFull: regex }] } }] : []),
-
       {
         $facet: {
           data: [
             { $skip: (page - 1) * pageSize },
             { $limit: pageSize },
-
-            // 🔎 لو اسم كولكشن الفواتير موش "devis" بدّلو تحت
             {
               $lookup: {
                 from: "devis",
                 let: { demandeId: "$_id" },
                 pipeline: [
-                  {
-                    $match: {
-                      $expr: {
-                        $and: [
-                          { $eq: ["$demande", "$$demandeId"] }, // بدّل لو تربط بالـ numero
-                          { $eq: ["$kind", "grille"] }
-                        ]
-                      }
-                    }
-                  },
+                  { $match: { $expr: { $and: [ { $eq: ["$demande","$$demandeId"] }, { $eq: ["$kind","grille"] } ] } } },
                   { $project: { _id: 0, numero: 1, pdf: 1 } }
                 ],
                 as: "devis"
               }
             },
             { $addFields: { devis: { $arrayElemAt: ["$devis", 0] } } },
-
-            {
-              $addFields: {
-                hasDemandePdf: {
-                  $and: [
-                    { $ne: ["$demandePdf", null] },
-                    { $gt: [{ $binarySize: { $ifNull: ["$demandePdf.data", []] } }, 0] }
-                  ]
-                }
-              }
-            },
-
+            // flag PDF basé sur l'URL
+            { $addFields: { hasDemandePdf: { $gt: [ { $strLenCP: { $ifNull: ["$demandePdf.url", ""] } }, 0 ] } } },
+            // documents légers
             {
               $project: {
                 numero: 1,
@@ -90,16 +61,7 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
                   $map: {
                     input: { $ifNull: ["$documents", []] },
                     as: "d",
-                    in: {
-                      filename: "$$d.filename",
-                      size: {
-                        $cond: [
-                          { $gt: [{ $ifNull: ["$$d.data", null] }, null] },
-                          { $binarySize: "$$d.data" },
-                          0
-                        ]
-                      }
-                    }
+                    in: { filename: "$$d.filename", size: "$$d.size", url: "$$d.url" }
                   }
                 },
                 user: { _id: "$u._id", prenom: "$u.prenom", nom: "$u.nom" },
@@ -110,7 +72,6 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
           total: [{ $count: "count" }]
         }
       },
-
       { $project: { items: "$data", total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] } } }
     ];
 
@@ -122,48 +83,45 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
   }
 });
 
-/** GET /api/devis/grille/:id/pdf */
+/** GET /api/devis/grille/:id/pdf — redirection vers l'URL Cloudinary */
 router.get("/:id/pdf", auth, only("admin"), async (req, res) => {
   try {
     const row = await DevisGrille.findById(req.params.id).select("demandePdf numero").lean();
-    const buf = toBuffer(row?.demandePdf?.data);
-    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF introuvable" });
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="devis-grille-${row?.numero || row?._id}.pdf"`);
-    res.end(buf);
+    const url = row?.demandePdf?.url;
+    if (!url) return res.status(404).json({ success: false, message: "PDF introuvable" });
+    res.redirect(302, url);
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Erreur lecture PDF" });
   }
 });
 
-/** GET /api/devis/grille/:id/document/:index */
+/** GET /api/devis/grille/:id/document/:index — redirection vers URL Cloudinary */
 router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
   try {
     const idx = Number(req.params.index);
     const row = await DevisGrille.findById(req.params.id).select("documents numero").lean();
     const doc = Array.isArray(row?.documents) ? row.documents[idx] : null;
-    const buf = toBuffer(doc?.data);
-    if (!buf?.length) return res.status(404).json({ success: false, message: "Document introuvable" });
-
-    const name = (doc?.filename || `document-${idx + 1}`).replace(/["]/g, "");
-    res.setHeader("Content-Type", doc?.mimetype || "application/octet-stream");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-    res.end(buf);
+    const url = doc?.url;
+    if (!url) return res.status(404).json({ success: false, message: "Document introuvable" });
+    res.redirect(302, url);
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Erreur lecture document" });
   }
 });
 
-/** POST /api/devis/grille  (client) */
-router.post("/", auth, only("client"), upload.array("docs"), createDevisGrille);
+/** POST /api/devis/grille
+ *  - mware Cloudinary uploade `docs` vers dossier `devis/grille_docs`
+ *  - req.files: buffers (pour email)
+ *  - req.cloudinaryFiles: { url, public_id, bytes, format }
+ */
+router.post(
+  "/",
+  auth,
+  only("client"),
+  ...cloudinaryUploadArray("docs", "devis/grille_docs"),
+  createDevisGrille
+);
 
 export default router;

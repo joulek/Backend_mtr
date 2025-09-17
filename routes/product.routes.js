@@ -1,25 +1,43 @@
 // MTR_Backend/routes/product.routes.js
 import { Router } from "express";
-import { upload } from "../middleware/upload.js";
+import auth from "../middleware/auth.js";
 import {
   createProduct,
   getProducts,
   getProductById,
   updateProduct,
   deleteProduct,
-  getProductsByCategory                // ⬅️ import
+  getProductsByCategory
+} from "../controllers/products.controller.js"; // ⚠️ vérifie bien le nom du fichier (products.controller.js)
 
-} from "../controllers/product.controller.js";
+// ✅ on importe le middleware Cloudinary qu’on a créé
+import { cloudinaryUploadArray } from "../middlewares/upload.js";
+
 const router = Router();
 
 router.get("/", getProducts);
-router.get("/by-category/:categoryId", getProductsByCategory); // ⬅️ NEW
+router.get("/by-category/:categoryId", getProductsByCategory);
 
+// CREATE avec images Cloudinary
+router.post(
+  "/",
+  auth,
+  ...cloudinaryUploadArray("images", "products"), // champ `images` côté frontend
+  createProduct
+);
 
-router.post("/", upload.array("images", 20), createProduct);
+// GET by id
 router.get("/:id", getProductById);
-router.put("/:id", upload.array("images", 20), updateProduct); // maj avec images
-router.delete("/:id", deleteProduct);
 
+// UPDATE avec images Cloudinary
+router.put(
+  "/:id",
+  auth,
+  ...cloudinaryUploadArray("images", "products"),
+  updateProduct
+);
+
+// DELETE
+router.delete("/:id", auth, deleteProduct);
 
 export default router;

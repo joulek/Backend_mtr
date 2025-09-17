@@ -40,13 +40,36 @@ const spec = new mongoose.Schema({
   },
 }, { _id: false });
 
+// ✅ PDF stocké sur Cloudinary
+const demandePdfSchema = new mongoose.Schema({
+  filename:    { type: String, trim: true },
+  contentType: { type: String, trim: true }, // application/pdf
+  size:        { type: Number },
+  url:         { type: String, trim: true }, // secure_url
+  public_id:   { type: String, trim: true }, // pour destroy si besoin
+}, { _id: false });
+
 const schema = new mongoose.Schema({});
 schema.add(devisBase);
-schema.add({
-  spec,
-  demandePdf: {
-    data: Buffer,
-    contentType: String
+schema.add({ spec, demandePdf: demandePdfSchema });
+
+schema.set("toJSON", {
+  transform: (_doc, ret) => {
+    if (Array.isArray(ret.documents)) {
+      // on suppose que devisBase.documents = { filename, mimetype, size, url, public_id }
+      ret.documents = ret.documents.map(d => ({
+        filename: d.filename, mimetype: d.mimetype, size: d.size, url: d.url
+      }));
+    }
+    if (ret.demandePdf) {
+      ret.demandePdf = {
+        filename: ret.demandePdf.filename,
+        contentType: ret.demandePdf.contentType,
+        size: ret.demandePdf.size,
+        url: ret.demandePdf.url,
+      };
+    }
+    return ret;
   }
 });
 

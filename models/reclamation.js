@@ -32,11 +32,10 @@ const reclamationSchema = new mongoose.Schema(
 
     commande: { type: commandeSchema, default: {} },
 
-    // ⬇️ pas d'enum pour accepter le texte libre quand "Autre"
-    nature: { type: String, required: true },   // ex: "retard_livraison" ou "a"
-    attente: { type: String, required: true },  // ex: "remplacement" ou "b"
+    // نص حرّ للسماح بـ "Autre"
+    nature: { type: String, required: true },
+    attente: { type: String, required: true },
 
-    // optionnel (on le laisse إن لزم الأمر)
     description: { type: String },
 
     piecesJointes: { type: [pieceJointeSchema], default: [] },

@@ -2,17 +2,19 @@
 import mongoose from "mongoose";
 
 export const devisBase = new mongoose.Schema({
-  numero: { type: String, required: true, unique: true, index: true }, // ✅ DV2500016
+  numero: { type: String, required: true, unique: true, index: true },
   user:   { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
   type:   { type: String, enum: ["compression","traction","torsion","fil","grille","autre"], required: true, index: true },
 
-documents: [{
-  filename: String,
-  mimetype: String,
-  data: Buffer   // Contenu du fichier
-}]
+  // ✅ fichiers Cloudinary (plus de Buffer)
+  documents: [{
+    filename:  String,
+    mimetype:  String,
+    size:      Number,  // bytes
+    url:       String,  // secure_url
+    public_id: String,  // pour delete si besoin
+  }],
 
-,
   exigences: String,
   remarques: String,
 }, { timestamps: true });

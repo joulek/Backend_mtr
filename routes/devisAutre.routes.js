@@ -6,7 +6,24 @@ import DevisAutre from "../models/DevisAutre.js";
 import { createDevisAutre } from "../controllers/devisAutre.controller.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+
+// ✅ limits + فلترة أنواع الملفات الشائعة فقط
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 4 }, // 10MB, max 4
+  fileFilter: (_req, file, cb) => {
+    const ok = [
+      "application/pdf",
+      "image/png", "image/jpeg", "image/webp",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/zip", "application/x-zip-compressed"
+    ].includes(file.mimetype);
+    cb(ok ? null : new Error("Type de fichier non autorisé"), ok);
+  }
+});
 
 function toBuffer(maybe) {
   if (!maybe) return null;
@@ -16,42 +33,25 @@ function toBuffer(maybe) {
   try { return Buffer.from(maybe); } catch { return null; }
 }
 
-/**
- * GET /api/devis/autre/paginated?q=&page=&pageSize=
- * - pagination + بحث (numero/nom/prenom)
- * - batch $lookup نحو collection "devis" مع kind:"autre"
- * - projection خفيفة بدون binary
- */
+// 🔎 GET /paginated
 router.get("/paginated", auth, only("admin"), async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize || "10", 10)));
-    const q = (req.query.q || "").trim();
+    const page = Math.max(1, Number.parseInt(req.query.page || "1", 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number.parseInt(req.query.pageSize || "10", 10) || 10));
+    const q = String(req.query.q || "").trim();
     const regex = q ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
 
     const pipeline = [
       { $sort: { createdAt: -1, _id: -1 } },
-
-      // join user
       { $lookup: { from: "users", localField: "user", foreignField: "_id", as: "u" } },
       { $unwind: { path: "$u", preserveNullAndEmptyArrays: true } },
-      {
-        $addFields: {
-          clientFull: {
-            $trim: { input: { $concat: [{ $ifNull: ["$u.prenom",""] }, " ", { $ifNull: ["$u.nom",""] }] } }
-          }
-        }
-      },
-
+      { $addFields: { clientFull: { $trim: { input: { $concat: [{ $ifNull: ["$u.prenom",""] }, " ", { $ifNull: ["$u.nom",""] }] } } } } },
       ...(regex ? [{ $match: { $or: [{ numero: regex }, { clientFull: regex }] } }] : []),
-
       {
         $facet: {
           data: [
             { $skip: (page - 1) * pageSize },
             { $limit: pageSize },
-
-            // lookup vers devis(kind:"autre")
             {
               $lookup: {
                 from: "devis",
@@ -64,8 +64,6 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
               }
             },
             { $addFields: { devis: { $arrayElemAt: ["$devis", 0] } } },
-
-            // hasDemandePdf flag
             {
               $addFields: {
                 hasDemandePdf: {
@@ -76,8 +74,6 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
                 }
               }
             },
-
-            // خفّف الوثائق: اسم + الحجم فقط
             {
               $project: {
                 numero: 1,
@@ -118,18 +114,22 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
   }
 });
 
-/** GET /api/devis/autre/:id/pdf — stream inline */
+// 📄 PDF
 router.get("/:id/pdf", auth, only("admin"), async (req, res) => {
   try {
     const row = await DevisAutre.findById(req.params.id).select("demandePdf numero").lean();
+    if (!row) return res.status(404).json({ success: false, message: "Demande introuvable" });
+
     const buf = toBuffer(row?.demandePdf?.data);
     if (!buf?.length) return res.status(404).json({ success: false, message: "PDF introuvable" });
 
-    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Type", row?.demandePdf?.contentType || "application/pdf");
     res.setHeader("Content-Length", String(buf.length));
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="devis-autre-${row?.numero || row?._id}.pdf"`);
+    // ✅ ملف باسم مرتب
+    const safeNum = (row?.numero || row?._id || "").toString().replace(/[^a-zA-Z0-9_-]/g, "");
+    res.setHeader("Content-Disposition", `inline; filename="devis-autre-${safeNum}.pdf"`);
     res.end(buf);
   } catch (e) {
     console.error(e);
@@ -137,12 +137,22 @@ router.get("/:id/pdf", auth, only("admin"), async (req, res) => {
   }
 });
 
-/** GET /api/devis/autre/:id/document/:index — stream inline */
+// 📎 Document by index
 router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
   try {
     const idx = Number(req.params.index);
+    if (!Number.isInteger(idx) || idx < 0) {
+      return res.status(400).json({ success: false, message: "Index invalide" });
+    }
+
     const row = await DevisAutre.findById(req.params.id).select("documents numero").lean();
-    const doc = Array.isArray(row?.documents) ? row.documents[idx] : null;
+    if (!row || !Array.isArray(row.documents)) {
+      return res.status(404).json({ success: false, message: "Demande introuvable" });
+    }
+
+    const doc = row.documents[idx];
+    if (!doc) return res.status(404).json({ success: false, message: "Document inexistant" });
+
     const buf = toBuffer(doc?.data);
     if (!buf?.length) return res.status(404).json({ success: false, message: "Document introuvable" });
 
@@ -159,7 +169,7 @@ router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
   }
 });
 
-/** POST /api/devis/autre (client) */
+// 📨 création
 router.post("/", auth, only("client"), upload.array("docs"), createDevisAutre);
 
 export default router;

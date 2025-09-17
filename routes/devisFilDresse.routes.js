@@ -1,27 +1,15 @@
 // routes/devisFil.routes.js
 import { Router } from "express";
-import multer from "multer";
 import auth, { only } from "../middleware/auth.js";
-
-import DevisFilDresse from "../models/DevisFilDresse.js"; // ← بدّل الاسم إذا موديلك مختلف
+import DevisFilDresse from "../models/DevisFilDresse.js";
 import { createDevisFilDresse } from "../controllers/devisFilDresse.controller.js";
+import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ Cloudinary
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
-
-function toBuffer(maybe) {
-  if (!maybe) return null;
-  if (Buffer.isBuffer(maybe)) return maybe;
-  if (maybe?.type === "Buffer" && Array.isArray(maybe?.data)) return Buffer.from(maybe.data);
-  if (maybe?.buffer && Buffer.isBuffer(maybe.buffer)) return Buffer.from(maybe.buffer);
-  try { return Buffer.from(maybe); } catch { return null; }
-}
 
 /**
  * GET /api/devis/fil/paginated?q=&page=&pageSize=
- * - pagination + search (numero أو nom/prenom)
- * - batch $lookup للـ devis (kind ∈ ["fil","fil_dresse_coupe"]) لتفادي N+1
- * - يرجّع فقط البيانات الخفيفة + فلاغ hasDemandePdf
+ * نفس البايبلاين لكن من غير $binarySize بما إنه ماعادش عندنا Buffers
  */
 router.get("/paginated", auth, only("admin"), async (req, res) => {
   try {
@@ -45,8 +33,6 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
           data: [
             { $skip: (page - 1) * pageSize },
             { $limit: pageSize },
-
-            // 🔎 لو الكولكشن متاع الفواتير اسمو غير "devis" بدّلو تحت
             {
               $lookup: {
                 from: "devis",
@@ -56,7 +42,7 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
                     $match: {
                       $expr: {
                         $and: [
-                          { $eq: ["$demande", "$$demandeId"] }, // بدّل إذا تربط بالـ numero
+                          { $eq: ["$demande","$$demandeId"] },
                           { $in: ["$kind", ["fil", "fil_dresse_coupe"]] }
                         ]
                       }
@@ -68,16 +54,10 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
               }
             },
             { $addFields: { devis: { $arrayElemAt: ["$devis", 0] } } },
-
-            // فلاغ PDF + حجم المرفقات محسوب (بدون إرجاع الـ binary)
+            // hasDemandePdf بالاعتماد على وجود URL
             {
               $addFields: {
-                hasDemandePdf: {
-                  $and: [
-                    { $ne: ["$demandePdf", null] },
-                    { $gt: [{ $binarySize: { $ifNull: ["$demandePdf.data", []] } }, 0] }
-                  ]
-                }
+                hasDemandePdf: { $gt: [ { $strLenCP: { $ifNull: ["$demandePdf.url", ""] } }, 0 ] }
               }
             },
             {
@@ -89,16 +69,7 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
                   $map: {
                     input: { $ifNull: ["$documents", []] },
                     as: "d",
-                    in: {
-                      filename: "$$d.filename",
-                      size: {
-                        $cond: [
-                          { $gt: [{ $ifNull: ["$$d.data", null] }, null] },
-                          { $binarySize: "$$d.data" },
-                          0
-                        ]
-                      }
-                    }
+                    in: { filename: "$$d.filename", size: "$$d.size", url: "$$d.url" }
                   }
                 },
                 user: { _id: "$u._id", prenom: "$u.prenom", nom: "$u.nom" },
@@ -120,48 +91,45 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
   }
 });
 
-/** GET /api/devis/fil/:id/pdf */
+/** GET /api/devis/fil/:id/pdf — redirect لCloudinary */
 router.get("/:id/pdf", auth, only("admin"), async (req, res) => {
   try {
     const row = await DevisFilDresse.findById(req.params.id).select("demandePdf numero").lean();
-    const buf = toBuffer(row?.demandePdf?.data);
-    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF introuvable" });
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="devis-fil-${row?.numero || row?._id}.pdf"`);
-    res.end(buf);
+    const url = row?.demandePdf?.url;
+    if (!url) return res.status(404).json({ success: false, message: "PDF introuvable" });
+    res.redirect(302, url);
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Erreur lecture PDF" });
   }
 });
 
-/** GET /api/devis/fil/:id/document/:index */
+/** GET /api/devis/fil/:id/document/:index — redirect لCloudinary */
 router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
   try {
     const idx = Number(req.params.index);
     const row = await DevisFilDresse.findById(req.params.id).select("documents numero").lean();
     const doc = Array.isArray(row?.documents) ? row.documents[idx] : null;
-    const buf = toBuffer(doc?.data);
-    if (!buf?.length) return res.status(404).json({ success: false, message: "Document introuvable" });
-
-    const name = (doc?.filename || `document-${idx + 1}`).replace(/["]/g, "");
-    res.setHeader("Content-Type", doc?.mimetype || "application/octet-stream");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-    res.end(buf);
+    const url = doc?.url;
+    if (!url) return res.status(404).json({ success: false, message: "Document introuvable" });
+    res.redirect(302, url);
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Erreur lecture document" });
   }
 });
 
-/** POST /api/devis/fil  (client) */
-router.post("/", auth, only("client"), upload.array("docs"), createDevisFilDresse);
+/** POST /api/devis/fil
+ *  - الميدلوير Cloudinary يرفع docs → `devis/fil_docs`
+ *  - req.files: buffers (للإيميل)
+ *  - req.cloudinaryFiles: { url, public_id, bytes, format }
+ */
+router.post(
+  "/",
+  auth,
+  only("client"),
+  ...cloudinaryUploadArray("docs", "devis/fil_docs"),
+  createDevisFilDresse
+);
 
 export default router;

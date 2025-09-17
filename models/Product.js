@@ -2,6 +2,17 @@
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
+// ✅ sous-schema pour les images Cloudinary
+const imageSchema = new Schema(
+  {
+    url: { type: String, required: true, trim: true },        // secure_url Cloudinary
+    public_id: { type: String, required: true, trim: true },  // identifiant Cloudinary
+    format: { type: String, trim: true },                     // jpg, png, webp, pdf...
+    bytes: { type: Number },                                  // poids du fichier
+  },
+  { _id: false }
+);
+
 const productSchema = new Schema(
   {
     // FR + EN
@@ -10,7 +21,8 @@ const productSchema = new Schema(
     description_fr: { type: String, trim: true, default: "" },
     description_en: { type: String, trim: true, default: "" },
 
-    images: [{ type: String }], // URLs
+    // ✅ Array d’objets Cloudinary
+    images: [imageSchema],
 
     // Relation catégorie
     category: { type: Schema.Types.ObjectId, ref: "Category", required: true }

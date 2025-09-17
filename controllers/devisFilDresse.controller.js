@@ -3,56 +3,57 @@ import DevisFilDresse from "../models/DevisFilDresse.js";
 import Counter from "../models/Counter.js";
 import { buildDevisFilDressePDF } from "../utils/pdf.devisFilDresse.js";
 import { makeTransport } from "../utils/mailer.js";
+import { uploadBufferToCloudinary } from "../middlewares/upload.js"; // helper متاع Cloudinary
 
 const toNum = (val) => Number(String(val ?? "").replace(",", "."));
 const formatDevisNumber = (year, seq) =>
   `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;
 
-/**
- * POST /api/devis/filDresse
- * - nécessite auth (req.user.id)
- * - accepte des fichiers (req.files) -> documents
- */
+const MAX_ATTACH_TOTAL = 15 * 1024 * 1024; // 15MB
+
 export const createDevisFilDresse = async (req, res) => {
   try {
     if (!req.user?.id) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Utilisateur non authentifié" });
+      return res.status(401).json({ success: false, message: "Utilisateur non authentifié" });
     }
 
-    // Champs attendus depuis le form
     const {
-      longueurValeur,
-      longueurUnite, // "mm" | "m"
+      longueurValeur, longueurUnite,
       diametre,
-      quantiteValeur,
-      quantiteUnite, // "pieces" | "kg"
-      matiere,       // "Acier galvanisé" | "Acier Noir" | "Acier ressort" | "Acier inoxydable"
-      exigences,
-      remarques,
+      quantiteValeur, quantiteUnite,
+      matiere,
+      exigences, remarques,
     } = req.body;
 
-    // Normalisation numérique + structuration conforme au schéma
+    // spec normalized
     const spec = {
       longueurValeur: toNum(longueurValeur),
       longueurUnite,
       diametre: toNum(diametre),
-
       quantiteValeur: toNum(quantiteValeur),
       quantiteUnite,
-
       matiere,
     };
 
-    // Fichiers joints du client (depuis multer)
-    const documents = (req.files || []).map((f) => ({
-      filename: f.originalname,
-      mimetype: f.mimetype,
-      data: f.buffer,
-    }));
+    // ملفات الطلب:
+    // - req.files: buffers (لإرفاقهم في الإيميل)
+    // - req.cloudinaryFiles: { url, public_id, bytes, format } (من الميدلوير)
+    const incomingFiles = Array.isArray(req.files) ? req.files : [];
+    const cloudResults  = Array.isArray(req.cloudinaryFiles) ? req.cloudinaryFiles : [];
 
-    // Génération du numéro séquentiel par année
+    // نخزّن وثائق Cloudinary في DB (من غير Buffer)
+    const documents = cloudResults.map((r, i) => {
+      const f = incomingFiles[i];
+      return {
+        filename: f?.originalname || `document-${i + 1}`,
+        mimetype: f?.mimetype || undefined,
+        size: r?.bytes ?? f?.size ?? undefined,
+        url: r?.url,
+        public_id: r?.public_id,
+      };
+    });
+
+    // رقم متسلسل بالسنة
     const year = new Date().getFullYear();
     const counterId = `devis:${year}`;
     const c = await Counter.findOneAndUpdate(
@@ -60,9 +61,9 @@ export const createDevisFilDresse = async (req, res) => {
       { $inc: { seq: 1 } },
       { upsert: true, new: true }
     ).lean();
-    const numero = formatDevisNumber(year, c.seq); // ex: DDV2500001
+    const numero = formatDevisNumber(year, c.seq);
 
-    // 1) Création en base (sans PDF pour une réponse rapide)
+    // إنشاء الدوكيومون من غير PDF (باش الرسبونس ترجع بسرعة)
     const devis = await DevisFilDresse.create({
       numero,
       user: req.user.id,
@@ -70,93 +71,79 @@ export const createDevisFilDresse = async (req, res) => {
       spec,
       exigences,
       remarques,
-      documents,
+      documents, // { filename, mimetype, size, url, public_id }
     });
 
-    // 2) Réponse immédiate
-    res.status(201).json({
-      success: true,
-      devisId: devis._id,
-      numero: devis.numero,
-    });
+    res.status(201).json({ success: true, devisId: devis._id, numero: devis.numero });
 
-    // 3) Suite asynchrone: PDF + email + stockage PDF
+    // -------- PDF + Mail async --------
     setImmediate(async () => {
-      // util binaire (Mongo/lean)
-      const toBuffer = (maybeBinary) => {
-        if (!maybeBinary) return null;
-        if (Buffer.isBuffer(maybeBinary)) return maybeBinary;
-        if (maybeBinary.buffer && Buffer.isBuffer(maybeBinary.buffer)) {
-          return Buffer.from(maybeBinary.buffer);
-        }
-        try { return Buffer.from(maybeBinary); } catch { return null; }
-      };
-
       try {
-        // Récup complète
         const full = await DevisFilDresse.findById(devis._id)
           .populate("user", "nom prenom email numTel adresse accountType company personal")
           .lean();
 
-        // Générer le PDF spécifique "fil dressé"
+        // بناء PDF
         const pdfBuffer = await buildDevisFilDressePDF(full);
 
-        // Stocker le PDF dans le doc
+        // رفع PDF لCloudinary resource_type: raw
+        const up = await uploadBufferToCloudinary(pdfBuffer, {
+          folder: "devis/demandes",
+          resource_type: "raw",
+          filename_override: `devis-filDresse-${full._id}.pdf`,
+        });
+
+        // تخزين بيانات PDF في الوثيقة
         await DevisFilDresse.findByIdAndUpdate(
           devis._id,
-          { $set: { demandePdf: { data: pdfBuffer, contentType: "application/pdf" } } },
+          {
+            $set: {
+              demandePdf: {
+                filename: `devis-filDresse-${full._id}.pdf`,
+                contentType: "application/pdf",
+                size: up?.bytes || pdfBuffer?.length || undefined,
+                url: up?.secure_url,
+                public_id: up?.public_id,
+              },
+            },
+          },
           { new: true }
         );
 
-        // Construire les PJ (PDF + docs client <= 15 Mo)
+        // تجهيز الإيميل: نبعث PDF من الBuffer (مش من Cloudinary)
         const attachments = [
-          {
-            filename: `devis-filDresse-${full._id}.pdf`,
-            content: pdfBuffer,
-            contentType: "application/pdf",
-          },
+          { filename: `devis-filDresse-${full._id}.pdf`, content: pdfBuffer, contentType: "application/pdf" },
         ];
 
-        const MAX_TOTAL = 15 * 1024 * 1024; // 15 Mo
         let total = pdfBuffer.length;
-
-        const docs = Array.isArray(full.documents) ? full.documents : [];
-        for (const doc of docs) {
-          const name = (doc?.filename || "").trim();
-          const buf = toBuffer(doc?.data);
-          const type = doc?.mimetype || "application/octet-stream";
-
-          if (!name || name.startsWith("~$")) continue; // ignorer fichiers temp Office
-          if (!buf || buf.length === 0) continue;
-          if (total + buf.length > MAX_TOTAL) {
-            console.warn("[MAIL] PJ ignorée (taille totale > 15 Mo):", name);
-            continue;
-          }
-
-          attachments.push({ filename: name, content: buf, contentType: type });
-          total += buf.length;
+        for (let i = 0; i < incomingFiles.length; i++) {
+          const f = incomingFiles[i];
+          if (!f?.buffer?.length) continue;
+          if (total + f.buffer.length > MAX_ATTACH_TOTAL) continue;
+          attachments.push({
+            filename: f.originalname || `document-${i + 1}`,
+            content: f.buffer,
+            contentType: f.mimetype || "application/octet-stream",
+          });
+          total += f.buffer.length;
         }
 
-        // Infos mail
         const transporter = makeTransport();
-        const fullName = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
-        const clientEmail = full.user?.email || "-";
-        const clientTel = full.user?.numTel || "-";
-        const clientAdr = full.user?.adresse || "-";
-        const clientType = full.user?.accountType || "-"; // ✅ Type de compte
+        const fullName   = [full.user?.prenom, full.user?.nom].filter(Boolean).join(" ") || "Client";
+        const clientEmail= full.user?.email || "-";
+        const clientTel  = full.user?.numTel || "-";
+        const clientAdr  = full.user?.adresse || "-";
+        const clientType = full.user?.accountType || "-";
 
         const human = (n = 0) => {
-          const u = ["B", "KB", "MB", "GB"];
-          let i = 0, v = n;
+          const u = ["B", "KB", "MB", "GB"]; let i = 0, v = n;
           while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
           return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
         };
 
         const docsList =
-          attachments
-            .slice(1) // skip le PDF généré
-            .map((a) => `- ${a.filename} (${human(a.content.length)})`)
-            .join("\n") || "(aucun document client)";
+          attachments.slice(1).map(a => `- ${a.filename} (${human(a.content.length)})`).join("\n")
+          || "(aucun document client)";
 
         const textBody = `Nouvelle demande de devis – Fil dressé
 
@@ -175,113 +162,14 @@ Spécifications:
 - Diamètre: ${full.spec?.diametre}
 - Quantité: ${full.spec?.quantiteValeur} ${full.spec?.quantiteUnite}
 - Matière: ${full.spec?.matiere}
-
-Pièces jointes:
-- PDF de la demande: devis-filDresse-${full._id}.pdf (${human(pdfBuffer.length)})
-Documents client:
-${docsList}
 `;
-
-        // ======= EMAIL HTML (même style bandeau haut/carte/bandeau bas) =======
-        const BRAND_PRIMARY = "#002147"; // titres/liens
-        const BAND_DARK     = "#0B2239"; // bandes bleu marine
-        const BAND_TEXT     = "#FFFFFF"; // texte bandes
-        const PAGE_BG       = "#F5F7FB"; // fond page
-        const CONTAINER_W   = 680;       // largeur conteneur
-
-        const htmlBody = `<!doctype html>
-<html>
-  <head>
-    <meta charSet="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>${fullName} - ${full.numero}</title>
-  </head>
-  <body style="margin:0;background:${PAGE_BG};font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';color:#111827;">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0"
-           style="width:100%;background:${PAGE_BG};margin:0;padding:24px 16px;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
-      <tr>
-        <td align="center" style="padding:0;margin:0;">
-
-          <!-- Conteneur centré -->
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0"
-                 style="width:${CONTAINER_W}px;max-width:100%;border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;">
-
-            <!-- Bande TOP -->
-            <tr>
-              <td style="padding:0;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-                       style="border-collapse:collapse;border-spacing:0;">
-                  <tr>
-                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
-                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
-                               border-radius:8px;box-sizing:border-box;width:100%;">
-                      MTR – Manufacture Tunisienne des ressorts
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <!-- Espace -->
-            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
-
-            <!-- Carte contenu -->
-            <tr>
-              <td style="padding:0;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-                       style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;border-collapse:separate;box-sizing:border-box;">
-                  <tr>
-                    <td style="padding:24px;">
-                      <p style="margin:0 0 12px 0;">Bonjour, Vous avez reçu une <strong>nouvelle demande de devis (fil dressé)</strong>&nbsp;:</p>
-                      <ul style="margin:0 0 16px 20px;padding:0;">
-                        <li><strong>Client&nbsp;:</strong> ${fullName}</li>
-                        <li><strong>Email&nbsp;:</strong> ${clientEmail}</li>
-                        <li><strong>Téléphone&nbsp;:</strong> ${clientTel}</li>
-                        <li><strong>Type&nbsp;:</strong> fil</li>
-                        <li><strong>N° Demande&nbsp;:</strong> ${full.numero}</li>
-                      </ul>
-
-
-                  
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-            <!-- Espace -->
-            <tr><td style="height:16px;line-height:16px;font-size:0;">&nbsp;</td></tr>
-
-            <!-- Bande BOTTOM (même largeur que TOP, même sans texte) -->
-            <tr>
-              <td style="padding:0;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
-                       style="border-collapse:collapse;border-spacing:0;">
-                  <tr>
-                    <td style="background:${BAND_DARK};color:${BAND_TEXT};text-align:center;
-                               padding:14px 20px;font-weight:800;font-size:14px;letter-spacing:.3px;
-                               border-radius:8px;box-sizing:border-box;width:100%;">
-                      &nbsp;
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
 
         await transporter.sendMail({
           from: process.env.SMTP_USER,
           to: process.env.ADMIN_EMAIL,
           replyTo: clientEmail !== "-" ? clientEmail : undefined,
-          subject: `${fullName} - ${full.numero}`, // ✅ Nom Prénom - DDVxxxxx
+          subject: `${fullName} - ${full.numero}`,
           text: textBody,
-          html: htmlBody,
           attachments,
         });
       } catch (err) {
@@ -290,8 +178,6 @@ ${docsList}
     });
   } catch (e) {
     console.error("createDevisFilDresse:", e);
-    res
-      .status(400)
-      .json({ success: false, message: e.message || "Données invalides" });
+    res.status(400).json({ success: false, message: e.message || "Données invalides" });
   }
 };

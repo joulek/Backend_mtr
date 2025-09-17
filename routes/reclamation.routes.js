@@ -1,11 +1,12 @@
 // routes/reclamation.routes.js
 import { Router } from "express";
 import mongoose from "mongoose";
+import multer from "multer";
 
-// ⚠️ Respecte la casse exacte de ton fichier modèle
+// modèle (casse مهمة)
 import Reclamation from "../models/reclamation.js";
 
-// Si tes controllers existent déjà, on les garde
+// controllers
 import {
   adminListReclamations,
   createReclamation,
@@ -13,29 +14,31 @@ import {
   streamReclamationPdf,
 } from "../controllers/reclamation.controller.js";
 
-// ⚠️ Dans ton projet, c'était souvent "middlewares/auth.js"
-import  auth , { requireAdmin } from "../middleware/auth.js";
+// auth
+import auth, { requireAdmin } from "../middleware/auth.js";
 
 const router = Router();
 
+/* ------------------- Multer (mémoire) ------------------- */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 10,               // نفس قواعد الكنترولر
+    fileSize: 5 * 1024 * 1024,
+  },
+});
+
 /* ------------------------------------------------------------------ */
-/*  IMPORTANT : Ordre des routes → d’abord les chemins spécifiques     */
-/*  puis les dynamiques '/:id'                                         */
+/*  Routes spécifiques أولاً                                           */
 /* ------------------------------------------------------------------ */
 
-/** [CLIENT] Mes réclamations (liste, sans buffer PDF) */
-/** [CLIENT] Mes réclamations rapides avec cursor pagination */
-// routes/reclamation.routes.js (extrait)
+/** [CLIENT] Mes réclamations (cursor pagination, خفيف) */
 router.get("/me", auth, async (req, res) => {
   try {
     const userId = req.user.id;
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit || "10", 10)));
     const cursor = (req.query.cursor || "").trim();
 
-    // ✔️ On inclut maintenant les champs attendus par le front
-    //    - champs racine (numero, nature, attente, status, createdAt, updatedAt)
-    //    - champs imbriqués: commande.typeDoc, commande.numero
-    //    - état du PDF: demandePdf.generatedAt
     const PROJECTION = [
       "numero",
       "nature",
@@ -70,10 +73,8 @@ router.get("/me", auth, async (req, res) => {
   }
 });
 
-
-
-/** [CLIENT] Créer une réclamation */
-router.post("/", auth, createReclamation);
+/** [CLIENT] Créer une réclamation (+ upload fichiers) */
+router.post("/", auth, upload.array("piecesJointes"), createReclamation);
 
 /** [ADMIN] Liste admin */
 router.get("/admin", auth, requireAdmin, adminListReclamations);
@@ -81,14 +82,14 @@ router.get("/admin", auth, requireAdmin, adminListReclamations);
 /** [ADMIN] PDF d’une réclamation (stream) */
 router.get("/admin/:id/pdf", auth, requireAdmin, streamReclamationPdf);
 
-/** [ADMIN] Pièce jointe d’une réclamation (stream) */
+/** [ADMIN] Pièce jointe (stream) */
 router.get("/admin/:id/document/:index", auth, requireAdmin, streamReclamationDocument);
 
 /* ------------------------------------------------------------------ */
-/*  Routes dynamiques client (après /me et /admin*)                    */
+/*  Routes dynamiques (بعد /me و /admin*)                              */
 /* ------------------------------------------------------------------ */
 
-/** [CLIENT] Détail d’une réclamation (sans buffer PDF) */
+/** [CLIENT] Détail d’une réclamation (بدون buffer PDF) */
 router.get("/:id", auth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -106,7 +107,7 @@ router.get("/:id", auth, async (req, res) => {
   }
 });
 
-/** [CLIENT] PDF de la réclamation (inclure le buffer) */
+/** [CLIENT] PDF de la réclamation (stream) */
 router.get("/:id/pdf", auth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -114,20 +115,25 @@ router.get("/:id/pdf", auth, async (req, res) => {
       return res.status(400).json({ success: false, message: "id invalide" });
     }
 
-    // Inclure le buffer via +select
+    // +select للبافر
     const rec = await Reclamation.findOne({ _id: id, user: req.user.id })
       .select("+demandePdf.data demandePdf.contentType demandePdf.generatedAt");
 
-    if (!rec) {
-      return res.status(404).json({ success: false, message: "Réclamation introuvable" });
-    }
+    if (!rec) return res.status(404).json({ success: false, message: "Réclamation introuvable" });
     if (!rec.demandePdf?.data?.length) {
       return res.status(404).json({ success: false, message: "PDF indisponible" });
     }
 
+    const buf = Buffer.isBuffer(rec.demandePdf.data)
+      ? rec.demandePdf.data
+      : Buffer.from(rec.demandePdf.data.buffer);
+
     res.setHeader("Content-Type", rec.demandePdf.contentType || "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="reclamation-${rec._id}.pdf"`);
-    return res.send(rec.demandePdf.data);
+    res.setHeader("Content-Length", String(buf.length));
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    res.setHeader("Content-Disposition", `inline; filename="reclamation-${id}.pdf"`);
+    return res.end(buf);
   } catch (err) {
     console.error("GET /reclamations/:id/pdf error:", err);
     res.status(500).json({ success: false, message: "Erreur serveur" });

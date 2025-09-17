@@ -3,12 +3,12 @@ import mongoose from "mongoose";
 import { devisBase } from "./_devisBase.js";
 
 const spec = new mongoose.Schema({
-  d: { type: Number, required: true },   // diamètre du fil (d)
-  DE: { type: Number, required: true },   // diamètre extérieur (DE)
-  H: Number,                              // alésage (H)
-  S: Number,                              // guide (S)
-  DI: { type: Number, required: true },   // diamètre intérieur (DI)
-  Lo: { type: Number, required: true },   // longueur libre (Lo)
+  d: { type: Number, required: true },
+  DE: { type: Number, required: true },
+  H: Number,
+  S: Number,
+  DI: { type: Number, required: true },
+  Lo: { type: Number, required: true },
   nbSpires: { type: Number, required: true },
   pas: Number,
 
@@ -27,15 +27,44 @@ const spec = new mongoose.Schema({
   extremite: { type: String, enum: ["ERM", "EL", "ELM", "ERNM"] },
 }, { _id: false });
 
+// ⚡ PDF Cloudinary (plus de Buffer)
+const demandePdfSchema = new mongoose.Schema({
+  filename:    { type: String, trim: true },
+  contentType: { type: String, trim: true },  // application/pdf
+  size:        { type: Number },
+  url:         { type: String, trim: true },  // secure_url Cloudinary
+  public_id:   { type: String, trim: true },  // pour suppression si besoin
+}, { _id: false });
+
 const schema = new mongoose.Schema({});
 schema.add(devisBase);
 schema.add({
   spec,
-  demandePdf: {
-    data: Buffer,
-    contentType: String
-  }
+  demandePdf: demandePdfSchema,
 });
 
+// alléger les réponses
+schema.set("toJSON", {
+  transform: (_doc, ret) => {
+    if (Array.isArray(ret.documents)) {
+      // on suppose que devisBase.documents contient { filename, mimetype, size, url, public_id }
+      ret.documents = ret.documents.map(d => ({
+        filename: d.filename,
+        mimetype: d.mimetype,
+        size: d.size,
+        url: d.url,
+      }));
+    }
+    if (ret.demandePdf) {
+      ret.demandePdf = {
+        filename: ret.demandePdf.filename,
+        contentType: ret.demandePdf.contentType,
+        size: ret.demandePdf.size,
+        url: ret.demandePdf.url,
+      };
+    }
+    return ret;
+  }
+});
 
 export default mongoose.model("DemandeDevisCompression", schema);

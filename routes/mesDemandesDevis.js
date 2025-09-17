@@ -16,12 +16,12 @@ const router = express.Router();
  * Types de devis disponibles
  * --------------------------------------------------------- */
 const TYPES = {
-  grille:      { label: "Grille métallique",      Model: DevisGrille },
-  fildresse:   { label: "Fil Dressé/coupé",  Model: DevisFilDresse },
+  grille:      { label: "Grille métallique",   Model: DevisGrille },
+  fildresse:   { label: "Fil dressé/coupé",    Model: DevisFilDresse },
   compression: { label: "Ressort de Compression", Model: DevisCompression },
-  traction:    { label: "Ressort de Traction",    Model: DevisTraction },
-  torsion:     { label: "Ressort de Torsion",     Model: DevisTorsion },
-  autre:       { label: "Autre types",       Model: DevisAutre },
+  traction:    { label: "Ressort de Traction", Model: DevisTraction },
+  torsion:     { label: "Ressort de Torsion",  Model: DevisTorsion },
+  autre:       { label: "Autre article",       Model: DevisAutre },
 };
 
 const REF_FIELDS = [
@@ -41,14 +41,10 @@ const pickRef = (doc) => {
 };
 
 function normalizeItem(req, doc, slug, label) {
-  // On sait que le PDF existe si le buffer est présent OU si on a au moins le contentType
   const hasPdf = !!(doc?.demandePdf?.data?.length || doc?.demandePdf?.contentType);
-
-  // URLs stables d'accès aux ressources
   const base = `${req.protocol}://${req.get("host")}/api/mes-devis/${slug}/${doc._id}`;
   const pdfUrl = hasPdf ? `${base}/pdf` : null;
 
-  // Convertit les pièces jointes -> urls par _id (sans envoyer les buffers)
   const files = Array.isArray(doc.documents)
     ? doc.documents.map((d) => ({
         _id: String(d._id),
@@ -74,8 +70,6 @@ function normalizeItem(req, doc, slug, label) {
  * GET /api/mes-devis
  * -> liste paginée des devis du client connecté
  * --------------------------------------------------------- */
-// routes/mesDevis.js  — استبدل بلوك GET /api/mes-devis بهذا
-
 router.get("/mes-devis", auth, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -88,24 +82,12 @@ router.get("/mes-devis", auth, async (req, res) => {
     const oid = mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(userId) : null;
     const who = oid || userId;
 
-    // حقول المرجع المحتملة (نستعمل coalesce داخل الـ$project)
-    const REF_FIELDS = [
-      "ref","reference","numero","num","code","quoteRef","quoteNo","requestNumber",
-    ];
-
-    // حقول البحث النصي المحتملة
-    const TEXT_FIELDS = [
-      "subject","message","comments","description","notes",
-      ...REF_FIELDS
-    ];
-
-    // regex للبحث (اختياري)
     const rx = q ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
 
-    // نبني pipeline قياسي لموديل واحد (يُعاد استعماله في unionWith)
     const perModelPipe = (slug) => ([
-      // اجمع owner: coalesce (user, userId, client, createdBy, owner)
-      { $addFields: {
+      // coalesce owner
+      {
+        $addFields: {
           __owner: {
             $ifNull: [
               "$user",
@@ -120,19 +102,26 @@ router.get("/mes-devis", auth, async (req, res) => {
       },
       { $match: { __owner: who } },
 
-      // تصفية بحث نصي خفيف (على الحقول النصية إن توفّرت)
+      // text filter (optional)
       ...(rx ? [{
         $match: {
           $or: TEXT_FIELDS.map(f => ({ [f]: { $regex: rx, $options: "i" } }))
         }
       }] : []),
 
-      // hasPdf (يكفي contentType)، احتفظ فقط بالميتا
-      { $project: {
-          createdAt: 1, updatedAt: 1,
-          documents: { _id: 1, filename: 1, mimetype: 1 }, // بدون data
+      // keep metadata only (⚠️ documents must stay an array -> use $map)
+      {
+        $project: {
+          createdAt: 1,
+          updatedAt: 1,
           "demandePdf.contentType": 1,
-          // مرجع مدموج (أول قيمة non-null)
+          documents: {
+            $map: {
+              input: { $ifNull: ["$documents", []] },
+              as: "d",
+              in: { _id: "$$d._id", filename: "$$d.filename", mimetype: "$$d.mimetype" }
+            }
+          },
           __ref: {
             $ifNull: [
               "$ref","$reference","$numero","$num","$code","$quoteRef","$quoteNo","$requestNumber", null
@@ -141,36 +130,26 @@ router.get("/mes-devis", auth, async (req, res) => {
         }
       },
 
-      // طبّق شكل موحّد للعناصر
-      { $addFields: {
-          _type: slug,
-          _hasPdf: { $toBool: "$demandePdf.contentType" }
-        }
-      }
+      // mark type & hasPdf
+      { $addFields: { _type: slug, _hasPdf: { $toBool: "$demandePdf.contentType" } } }
     ]);
 
-    // الكلكشن الأساسي + unionWith لبقية الأنواع
-    // نختار أي موديل كـ"أساس". هنا: DevisGrille (ينجم يكون أي واحد).
     const baseSlug = "grille";
     const unionSlugs = Object.keys(TYPES).filter(s => s !== baseSlug);
 
     const pipeline = [
       ...perModelPipe(baseSlug),
-
-      // unionWith لكل موديل
       ...unionSlugs.flatMap(slug => ([
-        { $unionWith: {
+        {
+          $unionWith: {
             coll: mongoose.model(TYPES[slug].Model.modelName).collection.name,
             pipeline: perModelPipe(slug)
           }
         }
       ])),
-
-      // sort عام
       { $sort: { createdAt: -1 } },
-
-      // pagination + total
-      { $facet: {
+      {
+        $facet: {
           total: [{ $count: "n" }],
           items: [
             { $skip: (page - 1) * pageSize },
@@ -178,19 +157,18 @@ router.get("/mes-devis", auth, async (req, res) => {
           ]
         }
       },
-      { $project: {
+      {
+        $project: {
           items: 1,
           total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] }
         }
       }
     ];
 
-    // شغّل التجميعة على أي موديل (لازم نفس الداتابيز)
     const baseModel = TYPES[baseSlug].Model;
     const aggResult = await baseModel.aggregate(pipeline).allowDiskUse(true);
     const { items = [], total = 0 } = aggResult[0] || {};
 
-    // صيّغ العناصر للـAPI (إضافة روابط)
     const ORIGIN = `${req.protocol}://${req.get("host")}`;
     const cooked = items.map((it) => {
       const slug = it._type;
@@ -234,6 +212,8 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
     if (!Model) return res.status(404).json({ message: "Type inconnu" });
 
     const row = await Model.findById(id).select("demandePdf").lean();
+    if (!row) return res.status(404).json({ message: "PDF introuvable" });
+
     const data = row?.demandePdf?.data;
     const ct = row?.demandePdf?.contentType || "application/pdf";
     if (!data || (!Buffer.isBuffer(data) && !data.buffer)) {
@@ -241,9 +221,13 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
     }
 
     const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer);
+    const safeName = String(id).replace(/[^a-zA-Z0-9_-]/g, "");
     res.setHeader("Content-Type", ct);
-    res.setHeader("Content-Disposition", `inline; filename="devis-${id}.pdf"`);
-    res.send(buf);
+    res.setHeader("Content-Length", String(buf.length));
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    res.setHeader("Content-Disposition", `inline; filename="devis-${safeName}.pdf"`);
+    res.end(buf);
   } catch (err) {
     console.error("GET /api/mes-devis/:type/:id/pdf error:", err);
     res.status(500).json({ message: "Server error" });
@@ -261,17 +245,24 @@ router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
     if (!Model) return res.status(404).json({ message: "Type inconnu" });
 
     const row = await Model.findById(id).select("documents").lean();
-    const doc = row?.documents?.find((d) => String(d._id) === String(docId));
-    if (!doc) return res.status(404).json({ message: "Document introuvable" });
+    if (!row || !Array.isArray(row.documents)) {
+      return res.status(404).json({ message: "Document introuvable" });
+    }
+
+    const doc = row.documents.find((d) => String(d._id) === String(docId));
+    if (!doc) return res.status(404).json({ message: "Document inexistant" });
 
     const data = doc.data;
     if (!data) return res.status(404).json({ message: "Document vide" });
 
     const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer);
+    const safeName = String(doc.filename || `document-${docId}`).replace(/["]/g, "");
     res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
-    const filename = doc.filename || `document-${docId}`;
-    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
-    res.send(buf);
+    res.setHeader("Content-Length", String(buf.length));
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    res.setHeader("Content-Disposition", `inline; filename="${safeName}"`);
+    res.end(buf);
   } catch (err) {
     console.error("GET /api/mes-devis/:type/:id/doc/:docId error:", err);
     res.status(500).json({ message: "Server error" });

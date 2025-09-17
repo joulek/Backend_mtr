@@ -5,37 +5,25 @@ import { devisBase } from "./_devisBase.js";
 // ---------- Sous-schema spécifique au formulaire "Autre article" ----------
 const specSchema = new mongoose.Schema(
   {
-    // Gardé pour compat (anciens enregistrements)
     titre: { type: String, trim: true },
-
-    // Champs du formulaire
-    designation: { type: String, required: true, trim: true }, // "Désignation / Référence *"
-    dimensions:  { type: String, trim: true },                  // "Dimensions principales"
-    quantite:    { type: Number, required: true, min: 1 },      // "Quantité *"
-
-    // Matière sélectionnée (ou normalisée) — source de vérité
-    matiere:     { type: String, trim: true },                  // "Matière *" OU valeur libre recopiée
-
-    // Nouveau : texte libre quand l'utilisateur choisit "Autre" côté UI
-    matiereAutre:{ type: String, trim: true },                  // "Autre matière (précisez)"
-
-    description: { type: String, trim: true }                   // "Description de l'article"
+    designation: { type: String, required: true, trim: true },
+    dimensions:  { type: String, trim: true },
+    quantite:    { type: Number, required: true, min: 1 },
+    matiere:     { type: String, trim: true },
+    matiereAutre:{ type: String, trim: true },
+    description: { type: String, trim: true }
   },
   { _id: false }
 );
 
-// Au moins l'un des deux champs matière doit être présent
 specSchema.path("matiere").validate(function () {
-  // `this` est le sous-doc spec
   return Boolean(this.matiere || this.matiereAutre);
 }, "Le champ matière est requis.");
 
-// Normalisation avant validation : si matiere est vide ou vaut "Autre", on copie matiereAutre
 specSchema.pre("validate", function (next) {
   if ((!this.matiere || /^autre$/i.test(this.matiere)) && this.matiereAutre) {
     this.matiere = this.matiereAutre.trim();
   }
-  // Renseigner un titre par défaut si absent
   if (!this.titre) {
     this.titre = this.designation?.trim()
       || (this.matiere ? `Article (${this.matiere})` : "Article");
@@ -44,12 +32,14 @@ specSchema.pre("validate", function (next) {
 });
 
 // ---------- PDF généré côté backend (accusé/demande) ----------
+// ⚡ Version Cloudinary (plus de Buffer en DB)
 const demandePdfSchema = new mongoose.Schema(
   {
     filename:    { type: String, trim: true },
-    contentType: { type: String, trim: true },
+    contentType: { type: String, trim: true },   // "application/pdf"
     size:        { type: Number },
-    data:        Buffer
+    url:         { type: String, trim: true },   // secure_url Cloudinary
+    public_id:   { type: String, trim: true },   // pour suppression si besoin
   },
   { _id: false }
 );
@@ -62,19 +52,21 @@ schema.add({
   demandePdf: demandePdfSchema
 });
 
-// (facultatif) alléger les réponses JSON en masquant les buffers
+// (facultatif) alléger les réponses JSON
 schema.set("toJSON", {
   transform: (_doc, ret) => {
     if (Array.isArray(ret.documents)) {
+      // on suppose que devisBase.documents contient désormais { filename, mimetype, size, url, public_id }
       ret.documents = ret.documents.map(f => ({
-        filename: f.filename, mimetype: f.mimetype, size: f.size
+        filename: f.filename, mimetype: f.mimetype, size: f.size, url: f.url
       }));
     }
     if (ret.demandePdf) {
       ret.demandePdf = {
         filename: ret.demandePdf.filename,
         contentType: ret.demandePdf.contentType,
-        size: ret.demandePdf.size
+        size: ret.demandePdf.size,
+        url: ret.demandePdf.url
       };
     }
     return ret;

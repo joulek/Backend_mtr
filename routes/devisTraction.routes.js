@@ -1,28 +1,15 @@
 // routes/devisTraction.routes.js
 import { Router } from "express";
-import multer from "multer";
 import auth, { only } from "../middleware/auth.js";
-
-import DevisTraction from "../models/DevisTraction.js";           // ← غيّر الاسم لو الموديل مختلف
+import DevisTraction from "../models/DevisTraction.js";
 import { createDevisTraction } from "../controllers/devisTraction.controller.js";
+import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ notre MW
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
-
-/** helper لتحويل أي شكل ل Buffer */
-function toBuffer(maybe) {
-  if (!maybe) return null;
-  if (Buffer.isBuffer(maybe)) return maybe;
-  if (maybe?.type === "Buffer" && Array.isArray(maybe?.data)) return Buffer.from(maybe.data);
-  if (maybe?.buffer && Buffer.isBuffer(maybe.buffer)) return Buffer.from(maybe.buffer);
-  try { return Buffer.from(maybe); } catch { return null; }
-}
 
 /**
- * GET /api/devis/traction/paginated?q=&page=&pageSize=
- * - pagination + search (numero/nom/prenom)
- * - batch $lookup نحو collection "devis" مع kind:"traction"
- * - projection خفيفة (بدون binary)
+ * GET /api/devis/traction/paginated
+ * (pipelines identiques, mais on ne renvoie jamais de binaire)
  */
 router.get("/paginated", auth, only("admin"), async (req, res) => {
   try {
@@ -33,56 +20,29 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
 
     const pipeline = [
       { $sort: { createdAt: -1, _id: -1 } },
-
-      // user
       { $lookup: { from: "users", localField: "user", foreignField: "_id", as: "u" } },
       { $unwind: { path: "$u", preserveNullAndEmptyArrays: true } },
-      {
-        $addFields: {
-          clientFull: {
-            $trim: { input: { $concat: [{ $ifNull: ["$u.prenom", ""] }, " ", { $ifNull: ["$u.nom", ""] }] } }
-          }
-        }
-      },
-
+      { $addFields: { clientFull: { $trim: { input: { $concat: [{ $ifNull:["$u.prenom",""] }," ",{ $ifNull:["$u.nom",""] }] } } } } },
       ...(regex ? [{ $match: { $or: [{ numero: regex }, { clientFull: regex }] } }] : []),
-
       {
         $facet: {
           data: [
             { $skip: (page - 1) * pageSize },
             { $limit: pageSize },
-
-            // lookup vers devis(kind: traction)
             {
               $lookup: {
                 from: "devis",
                 let: { demandeId: "$_id" },
                 pipeline: [
-                  {
-                    $match: {
-                      $expr: { $and: [{ $eq: ["$demande", "$$demandeId"] }, { $eq: ["$kind", "traction"] }] }
-                    }
-                  },
+                  { $match: { $expr: { $and: [ { $eq: ["$demande","$$demandeId"] }, { $eq: ["$kind","traction"] } ] } } },
                   { $project: { _id: 0, numero: 1, pdf: 1 } }
                 ],
                 as: "devis"
               }
             },
             { $addFields: { devis: { $arrayElemAt: ["$devis", 0] } } },
-
-            // علّم إن كان عنده PDF للطلب
-            {
-              $addFields: {
-                hasDemandePdf: {
-                  $and: [
-                    { $ne: ["$demandePdf", null] },
-                    { $gt: [{ $binarySize: { $ifNull: ["$demandePdf.data", []] } }, 0] }
-                  ]
-                }
-              }
-            },
-
+            // flag basé sur l'URL Cloudinary
+            { $addFields: { hasDemandePdf: { $gt: [ { $strLenCP: { $ifNull: ["$demandePdf.url", ""] } }, 0 ] } } },
             {
               $project: {
                 numero: 1,
@@ -92,16 +52,7 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
                   $map: {
                     input: { $ifNull: ["$documents", []] },
                     as: "d",
-                    in: {
-                      filename: "$$d.filename",
-                      size: {
-                        $cond: [
-                          { $gt: [{ $ifNull: ["$$d.data", null] }, null] },
-                          { $binarySize: "$$d.data" },
-                          0
-                        ]
-                      }
-                    }
+                    in: { filename: "$$d.filename", size: "$$d.size", url: "$$d.url" }
                   }
                 },
                 user: { _id: "$u._id", prenom: "$u.prenom", nom: "$u.nom" },
@@ -123,48 +74,45 @@ router.get("/paginated", auth, only("admin"), async (req, res) => {
   }
 });
 
-/** GET /api/devis/traction/:id/pdf — stream */
+/** GET /api/devis/traction/:id/pdf — redirect to Cloudinary URL */
 router.get("/:id/pdf", auth, only("admin"), async (req, res) => {
   try {
     const row = await DevisTraction.findById(req.params.id).select("demandePdf numero").lean();
-    const buf = toBuffer(row?.demandePdf?.data);
-    if (!buf?.length) return res.status(404).json({ success: false, message: "PDF introuvable" });
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="devis-traction-${row?.numero || row?._id}.pdf"`);
-    res.end(buf);
+    const url = row?.demandePdf?.url;
+    if (!url) return res.status(404).json({ success: false, message: "PDF introuvable" });
+    res.redirect(302, url);
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Erreur lecture PDF" });
   }
 });
 
-/** GET /api/devis/traction/:id/document/:index — stream */
+/** GET /api/devis/traction/:id/document/:index — redirect to Cloudinary URL */
 router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
   try {
     const idx = Number(req.params.index);
     const row = await DevisTraction.findById(req.params.id).select("documents numero").lean();
     const doc = Array.isArray(row?.documents) ? row.documents[idx] : null;
-    const buf = toBuffer(doc?.data);
-    if (!buf?.length) return res.status(404).json({ success: false, message: "Document introuvable" });
-
-    const name = (doc?.filename || `document-${idx + 1}`).replace(/["]/g, "");
-    res.setHeader("Content-Type", doc?.mimetype || "application/octet-stream");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="${name}"`);
-    res.end(buf);
+    const url = doc?.url;
+    if (!url) return res.status(404).json({ success: false, message: "Document introuvable" });
+    res.redirect(302, url);
   } catch (e) {
     console.error(e);
     res.status(500).json({ success: false, message: "Erreur lecture document" });
   }
 });
 
-/** POST /api/devis/traction (client) */
-router.post("/", auth, only("client"), upload.array("docs"), createDevisTraction);
+/** POST /api/devis/traction
+ *  - Cloudinary upload des `docs` → dossier `devis/traction_docs`
+ *  - req.files: buffers (pour email)
+ *  - req.cloudinaryFiles: { url, public_id, bytes, format }
+ */
+router.post(
+  "/",
+  auth,
+  only("client"),
+  ...cloudinaryUploadArray("docs", "devis/traction_docs"),
+  createDevisTraction
+);
 
 export default router;

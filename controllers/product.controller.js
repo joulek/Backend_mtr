@@ -1,46 +1,83 @@
 // controllers/products.controller.js
-import fs from "fs";
-import path from "path";
 import Product from "../models/Product.js";
+import { v2 as cloudinary } from "cloudinary";
 
-// Si tu as centralisé ces constantes dans un fichier upload.js, importe-les.
-// Sinon adapte le chemin ici :
-const UPLOAD_PUBLIC_URL = "/uploads";
-const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
+/* ------------------------------------------------------------------ */
+/* Helpers Cloudinary                                                  */
+/* ------------------------------------------------------------------ */
 
-/** Util : fabrique une URL publique absolue à partir d'un filename multer */
-function toPublicUrl(req, filename) {
-  const host = `${req.protocol}://${req.get("host")}`;
-  return `${host}${UPLOAD_PUBLIC_URL}/${filename}`;
+/**
+ * À partir d'une URL Cloudinary, essaie d'extraire public_id et resource_type.
+ * On suppose une url de type:
+ *  https://res.cloudinary.com/<cloud>/image/upload/v1699999999/folder/sub/filename.ext
+ *  https://res.cloudinary.com/<cloud>/raw/upload/v1699999999/devis/DEVIS-1234.pdf
+ *
+ * Retourne { public_id, resource_type } ou null si non Cloudinary.
+ */
+function extractCloudinaryInfo(url) {
+  if (typeof url !== "string") return null;
+  // Doit contenir /upload/
+  const upIdx = url.indexOf("/upload/");
+  if (upIdx === -1) return null;
+
+  // Déterminer resource_type à partir du segment avant /upload/
+  // .../<resource_type>/upload/...
+  // si absent, fallback "image"
+  const before = url.slice(0, upIdx);
+  const segs = before.split("/").filter(Boolean);
+  const resource_type = segs[segs.length - 1] || "image";
+
+  // partie après /upload/
+  const after = url.slice(upIdx + "/upload/".length); // ex: v169.../folder/x/y.ext
+  const parts = after.split("/").filter(Boolean);
+
+  // Retirer un éventuel segment de version type v123456789
+  if (parts[0] && /^v\d+$/.test(parts[0])) parts.shift();
+
+  if (!parts.length) return null;
+
+  // Dernier segment = "filename.ext" -> enlever extension
+  const last = parts.pop(); // filename.ext
+  const dot = last.lastIndexOf(".");
+  const base = dot !== -1 ? last.slice(0, dot) : last;
+
+  // public_id = le reste joiné + base
+  const public_id = parts.length ? `${parts.join("/")}/${base}` : base;
+
+  return { public_id, resource_type };
 }
 
-/** Util : supprime un fichier si présent (best effort) */
-function safeUnlinkByPublicUrl(publicUrl) {
+/** Détruire un asset Cloudinary à partir de son URL (best-effort). */
+async function destroyFromUrl(url) {
+  const info = extractCloudinaryInfo(url);
+  if (!info) return;
   try {
-    // publicUrl = http://host/uploads/xxx.png  -> on ne garde que la partie "uploads/xxx.png"
-    const idx = publicUrl.indexOf(UPLOAD_PUBLIC_URL + "/");
-    if (idx === -1) return;
-    const rel = publicUrl.slice(idx + UPLOAD_PUBLIC_URL.length + 1); // xxx.png
-    const abs = path.join(UPLOAD_DIR, rel);
-    if (fs.existsSync(abs)) fs.unlinkSync(abs);
-  } catch {}
+    await cloudinary.uploader.destroy(info.public_id, { resource_type: info.resource_type });
+  } catch (e) {
+    // on n'échoue pas la requête pour autant
+    console.warn("Cloudinary destroy failed for", url, e?.message);
+  }
 }
 
-/** CREATE PRODUCT */
+/* ------------------------------------------------------------------ */
+/* CREATE PRODUCT                                                      */
+/* ------------------------------------------------------------------ */
+
 export const createProduct = async (req, res) => {
   try {
     const { name_fr, name_en, description_fr, description_en, category } = req.body;
 
-    // fichiers uploadés par multer
-    const images = (req.files || []).map((f) => toPublicUrl(req, f.filename));
+    // Images venant de Cloudinary via ton middleware (req.cloudinaryFiles)
+    // On ne stocke que les URLs pour rester 100% compatible avec ton schéma actuel (Array<String>)
+    const images = (req.cloudinaryFiles || []).map((f) => f.url);
 
     const product = await Product.create({
       name_fr,
       name_en,
       description_fr,
       description_en,
-      category,            // ObjectId attendu
-      images,              // URLs publiques absolues
+      category,  // ObjectId attendu
+      images,    // Array<String> d'URLs Cloudinary
     });
 
     const populated = await product.populate("category");
@@ -51,7 +88,10 @@ export const createProduct = async (req, res) => {
   }
 };
 
-/** GET ALL PRODUCTS (avec populate + tri desc) */
+/* ------------------------------------------------------------------ */
+/* GET ALL PRODUCTS                                                    */
+/* ------------------------------------------------------------------ */
+
 export const getProducts = async (req, res) => {
   try {
     const products = await Product.find()
@@ -64,7 +104,10 @@ export const getProducts = async (req, res) => {
   }
 };
 
-/** GET PRODUCT BY ID */
+/* ------------------------------------------------------------------ */
+/* GET PRODUCT BY ID                                                   */
+/* ------------------------------------------------------------------ */
+
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -77,37 +120,36 @@ export const getProductById = async (req, res) => {
   }
 };
 
+/* ------------------------------------------------------------------ */
+/* UPDATE PRODUCT                                                      */
+/* ------------------------------------------------------------------ */
 /**
- * UPDATE PRODUCT
  * Scénarios supportés :
  *  - Mise à jour de champs texte/category.
- *  - Ajout d’images (append) via multipart (req.files).
- *  - Remplacement complet des images via body JSON { replaceImages: true } + nouveaux fichiers.
- *  - Suppression ciblée via body (JSON ou multipart) { removeImages: [url1, url2] }.
+ *  - Ajout d’images (append) via multipart (req.cloudinaryFiles).
+ *  - Remplacement complet des images via { replaceImages: true } + nouveaux fichiers.
+ *  - Suppression ciblée via { removeImages: [url1, url2] } (et détruit sur Cloudinary).
  */
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Récup des champs (multipart ou JSON)
     const {
       name_fr,
       name_en,
       description_fr,
       description_en,
       category,
-      replaceImages,         // "true"/true -> remplace complètement
+      replaceImages, // "true"/true -> remplace complètement
     } = req.body;
 
-    // removeImages peut arriver en JSON (array) ou en multipart (string|array)
+    // removeImages peut venir en JSON (array) ou en multipart (string|array)
     let { removeImages } = req.body;
     if (typeof removeImages === "string") {
-      try { removeImages = JSON.parse(removeImages); } catch { removeImages = [removeImages]; }
+      try { removeImages = JSON.parse(removeImages); }
+      catch { removeImages = [removeImages]; }
     }
     if (!Array.isArray(removeImages)) removeImages = [];
-
-    // fichiers ajoutés par multer
-    const uploaded = (req.files || []).map((f) => toPublicUrl(req, f.filename));
 
     const product = await Product.findById(id);
     if (!product) return res.status(404).json({ message: "Product not found" });
@@ -119,27 +161,25 @@ export const updateProduct = async (req, res) => {
     if (description_en !== undefined) product.description_en = description_en;
     if (category) product.category = category;
 
-    // Gestion des images :
+    // Nouvelles images uploadées pendant cette requête
+    const uploadedUrls = (req.cloudinaryFiles || []).map((f) => f.url);
+
     if (replaceImages === true || replaceImages === "true") {
-      // Supprimer toutes les anciennes images du disque
-      for (const url of product.images) safeUnlinkByPublicUrl(url);
-      // Puis on ne garde que les nouvelles uploadées
-      product.images = uploaded;
+      // 1) Détruire toutes les anciennes images Cloudinary
+      await Promise.all((product.images || []).map((url) => destroyFromUrl(url)));
+      // 2) Remplacer par les nouvelles
+      product.images = uploadedUrls;
     } else {
-      // Suppression ciblée demandée
+      // Suppression ciblée demandée : on détruit aussi côté Cloudinary
       if (removeImages.length) {
-        const toKeep = [];
-        for (const url of product.images) {
-          if (removeImages.includes(url)) {
-            safeUnlinkByPublicUrl(url);
-          } else {
-            toKeep.push(url);
-          }
-        }
-        product.images = toKeep;
+        // Détruire côté Cloudinary (best-effort)
+        await Promise.all(removeImages.map((url) => destroyFromUrl(url)));
+        // Puis retirer du tableau
+        const setToRemove = new Set(removeImages);
+        product.images = (product.images || []).filter((url) => !setToRemove.has(url));
       }
-      // Ajout des nouvelles
-      if (uploaded.length) product.images.push(...uploaded);
+      // Ajout des nouvelles (append)
+      if (uploadedUrls.length) product.images.push(...uploadedUrls);
     }
 
     await product.save();
@@ -151,7 +191,10 @@ export const updateProduct = async (req, res) => {
   }
 };
 
-/** DELETE PRODUCT (+ suppression fichiers) */
+/* ------------------------------------------------------------------ */
+/* DELETE PRODUCT                                                      */
+/* ------------------------------------------------------------------ */
+
 export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
@@ -159,8 +202,8 @@ export const deleteProduct = async (req, res) => {
     const product = await Product.findByIdAndDelete(id);
     if (!product) return res.status(404).json({ message: "Product not found" });
 
-    // on supprime les fichiers physiques
-    for (const url of product.images || []) safeUnlinkByPublicUrl(url);
+    // supprimer les assets Cloudinary liés (best-effort)
+    await Promise.all((product.images || []).map((url) => destroyFromUrl(url)));
 
     res.json({ success: true, message: "Product deleted" });
   } catch (err) {
@@ -169,7 +212,10 @@ export const deleteProduct = async (req, res) => {
   }
 };
 
-// ➕ GET /api/products/by-category/:categoryId
+/* ------------------------------------------------------------------ */
+/* GET /api/products/by-category/:categoryId                          */
+/* ------------------------------------------------------------------ */
+
 export const getProductsByCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;

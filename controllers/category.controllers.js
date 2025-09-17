@@ -1,45 +1,68 @@
 // controllers/category.controller.js
 import Category from "../models/category.js";
-import fs from "fs";
-import path from "path";
+import { v2 as cloudinary } from "cloudinary";
 
-// -- Helpers fichiers --------------------------------------------------------
-const toPublicUrl = (file) => (file?.filename ? `/uploads/${file.filename}` : null);
+/* ----------------------- Helpers Cloudinary ----------------------- */
 
-const removeLocalFileByUrl = (url) => {
+// extraire public_id & resource_type depuis une URL Cloudinary
+function extractCloudinaryInfo(url) {
+  if (typeof url !== "string") return null;
+  const upIdx = url.indexOf("/upload/");
+  if (upIdx === -1) return null;
+
+  // .../<resource_type>/upload/...
+  const before = url.slice(0, upIdx);
+  const segs = before.split("/").filter(Boolean);
+  const resource_type = segs[segs.length - 1] || "image";
+
+  let after = url.slice(upIdx + "/upload/".length); // v1234/.../file.ext
+  const parts = after.split("/").filter(Boolean);
+  if (parts[0] && /^v\d+$/.test(parts[0])) parts.shift();
+
+  if (!parts.length) return null;
+  const last = parts.pop(); // file.ext
+  const dot = last.lastIndexOf(".");
+  const base = dot !== -1 ? last.slice(0, dot) : last;
+  const public_id = parts.length ? `${parts.join("/")}/${base}` : base;
+
+  return { public_id, resource_type };
+}
+
+async function destroyFromUrl(url) {
+  const info = extractCloudinaryInfo(url);
+  if (!info) return;
   try {
-    if (!url) return;
-    const abs = path.join(process.cwd(), url.replace(/^\//, "")); // enlève le "/" initial
-    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+    await cloudinary.uploader.destroy(info.public_id, { resource_type: info.resource_type });
   } catch (e) {
-    // on évite de casser la requête si la suppression échoue
-    console.warn("Suppression fichier échouée:", e?.message);
+    console.warn("Cloudinary destroy failed:", e?.message);
   }
-};
+}
+
+/* ----------------------- Controllers ------------------------------ */
 
 // ➕ Créer une catégorie
 export const createCategory = async (req, res) => {
   try {
     const { label, en, alt_fr, alt_en } = req.body;
 
-    const imageUrl = toPublicUrl(req.file); // req.file fourni par upload.single("image")
+    // Le middleware Cloudinary met les fichiers dans req.cloudinaryFiles
+    const f = (req.cloudinaryFiles && req.cloudinaryFiles[0]) || null;
 
-    const newCategory = new Category({
+    const newCategory = await Category.create({
       label,
-      translations: {
-        fr: label,
-        en: en || label,
-      },
-      image: imageUrl
+      translations: { fr: label, en: en || label },
+      image: f
         ? {
-            url: imageUrl,
+            url: f.url,
+            public_id: f.public_id,
+            format: f.format,
+            bytes: f.bytes,
             alt_fr: alt_fr || label || "",
             alt_en: alt_en || en || label || "",
           }
         : undefined,
     });
 
-    await newCategory.save();
     res.json({ success: true, category: newCategory });
   } catch (err) {
     console.error("Erreur création catégorie:", err);
@@ -48,7 +71,7 @@ export const createCategory = async (req, res) => {
 };
 
 // 📋 Lire toutes les catégories
-export const getCategories = async (req, res) => {
+export const getCategories = async (_req, res) => {
   try {
     const categories = await Category.find();
     res.json({ success: true, categories });
@@ -63,37 +86,41 @@ export const updateCategory = async (req, res) => {
     const { id } = req.params;
     const { label, en, alt_fr, alt_en, removeImage } = req.body;
 
-    // On récupère l'ancienne catégorie pour gérer le remplacement/suppression du fichier
     const prev = await Category.findById(id);
     if (!prev) return res.status(404).json({ message: "Catégorie non trouvée" });
 
-    const nextTranslations = {
-      fr: label,
-      en: en || label,
-    };
+    const nextTranslations = { fr: label, en: en || label };
+    const nextData = { label, translations: nextTranslations };
 
-    const nextData = {
-      label,
-      translations: nextTranslations,
-    };
+    const f = (req.cloudinaryFiles && req.cloudinaryFiles[0]) || null;
 
-    const newFileUrl = toPublicUrl(req.file);
+    // Cas 1 : nouvelle image uploadée
+    if (f) {
+      // détruire l'ancienne si présente
+      if (prev.image?.url) await destroyFromUrl(prev.image.url);
 
-    // Cas 1 : un nouveau fichier arrive → on remplace l'image
-    if (newFileUrl) {
       nextData.image = {
-        url: newFileUrl,
+        url: f.url,
+        public_id: f.public_id,
+        format: f.format,
+        bytes: f.bytes,
         alt_fr: alt_fr ?? prev.image?.alt_fr ?? label ?? "",
         alt_en: alt_en ?? prev.image?.alt_en ?? en ?? label ?? "",
       };
-    } else if (removeImage === "true" || removeImage === true) {
-      // Cas 2 : on demande explicitement de retirer l'image
+    }
+    // Cas 2 : suppression explicite
+    else if (removeImage === "true" || removeImage === true) {
+      if (prev.image?.url) await destroyFromUrl(prev.image.url);
       nextData.image = undefined;
-    } else if (alt_fr !== undefined || alt_en !== undefined) {
-      // Cas 3 : on ne change pas le fichier mais on met à jour les alts si fournis
+    }
+    // Cas 3 : maj des alt sans changer de fichier
+    else if (alt_fr !== undefined || alt_en !== undefined) {
       if (prev.image?.url) {
         nextData.image = {
           url: prev.image.url,
+          public_id: prev.image.public_id,
+          format: prev.image.format,
+          bytes: prev.image.bytes,
           alt_fr: alt_fr ?? prev.image.alt_fr ?? "",
           alt_en: alt_en ?? prev.image.alt_en ?? "",
         };
@@ -101,18 +128,7 @@ export const updateCategory = async (req, res) => {
     }
 
     const updated = await Category.findByIdAndUpdate(id, nextData, { new: true });
-
     if (!updated) return res.status(404).json({ message: "Catégorie non trouvée" });
-
-    // Si un nouveau fichier a été uploadé, on supprime l'ancien fichier local
-    if (newFileUrl && prev.image?.url && prev.image.url !== newFileUrl) {
-      removeLocalFileByUrl(prev.image.url);
-    }
-
-    // Si on a retiré l'image, supprimer l'ancien fichier
-    if ((removeImage === "true" || removeImage === true) && prev.image?.url) {
-      removeLocalFileByUrl(prev.image.url);
-    }
 
     res.json({ success: true, category: updated });
   } catch (err) {
@@ -126,13 +142,9 @@ export const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const deleted = await Category.findByIdAndDelete(id);
-
     if (!deleted) return res.status(404).json({ message: "Catégorie non trouvée" });
 
-    // Supprime aussi le fichier image local si présent
-    if (deleted.image?.url) {
-      removeLocalFileByUrl(deleted.image.url);
-    }
+    if (deleted.image?.url) await destroyFromUrl(deleted.image.url);
 
     res.json({ success: true, message: "Catégorie supprimée" });
   } catch (err) {
