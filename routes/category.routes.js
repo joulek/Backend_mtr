@@ -5,7 +5,7 @@ import {
   getCategories,
   updateCategory,
   deleteCategory,
-} from "../controllers/category.controller.js";
+} from "../controllers/category.controllers.js";
 
 // ⚠️ on utilise le middlewares Cloudinary (pas l'ancien upload disque)
 import { cloudinaryUploadArray } from "../middlewares/upload.js";
