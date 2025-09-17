@@ -8,7 +8,7 @@ import {
   updateProduct,
   deleteProduct,
   getProductsByCategory
-} from "../controllers/products.controller.js"; // ⚠️ vérifie bien le nom du fichier (products.controller.js)
+} from "../controllers/product.controller.js"; // ⚠️ vérifie bien le nom du fichier (products.controller.js)
 
 // ✅ on importe le middlewares Cloudinary qu’on a créé
 import { cloudinaryUploadArray } from "../middlewares/upload.js";
