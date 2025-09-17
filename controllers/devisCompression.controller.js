@@ -3,7 +3,7 @@ import DevisCompression from "../models/DevisCompression.js";
 import Counter from "../models/Counter.js";
 import { buildDevisCompressionPDF } from "../utils/pdf.devisCompression.js";
 import { makeTransport } from "../utils/mailer.js";
-import { uploadBufferToCloudinary } from "../middlewaress/upload.js"; // helper Cloudinary
+import { uploadBufferToCloudinary } from "../middlewares/upload.js"; // helper Cloudinary
 
 const toNum = (val) => Number(String(val ?? "").replace(",", "."));
 const formatDevisNumber = (year, seq) =>

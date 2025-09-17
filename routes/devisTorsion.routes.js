@@ -3,7 +3,7 @@ import { Router } from "express";
 import auth, { only } from "../middlewares/auth.js";
 import DevisTorsion from "../models/DevisTorsion.js";
 import { createDevisTorsion } from "../controllers/devisTorsion.controller.js";
-import { cloudinaryUploadArray } from "../middlewaress/upload.js"; // ✅
+import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅
 
 const router = Router();
 

@@ -3,7 +3,7 @@ import DevisAutre from "../models/DevisAutre.js";
 import Counter from "../models/Counter.js";
 import { buildDevisAutrePDF } from "../utils/pdf.devisAutre.js";
 import { makeTransport } from "../utils/mailer.js";
-import { uploadBufferToCloudinary } from "../middlewaress/upload.js"; // ⚠️ helper qu'on a créé
+import { uploadBufferToCloudinary } from "../middlewares/upload.js"; // ⚠️ helper qu'on a créé
 
 const formatDevisNumber = (year, seq) =>
   `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;

@@ -8,7 +8,7 @@ import {
 } from "../controllers/category.controller.js";
 
 // ⚠️ on utilise le middlewares Cloudinary (pas l'ancien upload disque)
-import { cloudinaryUploadArray } from "../middlewaress/upload.js";
+import { cloudinaryUploadArray } from "../middlewares/upload.js";
 import auth from "../middlewares/auth.js"; // si tu veux protéger
 
 const router = express.Router();

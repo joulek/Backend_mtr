@@ -1,4 +1,4 @@
-// MTR_Backend/middlewaress/upload.js
+// MTR_Backend/middlewares/upload.js
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 

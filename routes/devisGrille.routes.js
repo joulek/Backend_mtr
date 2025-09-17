@@ -3,7 +3,7 @@ import { Router } from "express";
 import auth, { only } from "../middlewares/auth.js";
 import DevisGrille from "../models/DevisGrille.js";
 import { createDevisGrille } from "../controllers/devisGrille.controller.js";
-import { cloudinaryUploadArray } from "../middlewaress/upload.js"; // ✅ Cloudinary
+import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ Cloudinary
 
 const router = Router();
 

@@ -11,7 +11,7 @@ import {
 } from "../controllers/products.controller.js"; // ⚠️ vérifie bien le nom du fichier (products.controller.js)
 
 // ✅ on importe le middlewares Cloudinary qu’on a créé
-import { cloudinaryUploadArray } from "../middlewaress/upload.js";
+import { cloudinaryUploadArray } from "../middlewares/upload.js";
 
 const router = Router();
 

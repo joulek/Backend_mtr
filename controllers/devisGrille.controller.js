@@ -3,7 +3,7 @@ import DevisGrille from "../models/DevisGrille.js";
 import Counter from "../models/Counter.js";
 import { buildDevisGrillePDF } from "../utils/pdf.DevisGrille.js"; // garde le même chemin
 import { makeTransport } from "../utils/mailer.js";
-import { uploadBufferToCloudinary } from "../middlewaress/upload.js"; // helper Cloudinary
+import { uploadBufferToCloudinary } from "../middlewares/upload.js"; // helper Cloudinary
 
 const toNum = (val) => Number(String(val ?? "").replace(",", "."));
 const formatDevisNumber = (year, seq) =>
