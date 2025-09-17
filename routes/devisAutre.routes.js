@@ -1,7 +1,7 @@
 // routes/devisAutre.routes.js
 import { Router } from "express";
 import multer from "multer";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import DevisAutre from "../models/DevisAutre.js";
 import { createDevisAutre } from "../controllers/devisAutre.controller.js";
 

@@ -15,7 +15,7 @@ import {
 } from "../controllers/reclamation.controller.js";
 
 // auth
-import auth, { requireAdmin } from "../middleware/auth.js";
+import auth, { requireAdmin } from "../middlewares/auth.js";
 
 const router = Router();
 

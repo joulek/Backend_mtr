@@ -1,7 +1,7 @@
 // routes/mesDevis.js
 import express from "express";
 import mongoose from "mongoose";
-import auth from "../middleware/auth.js";
+import auth from "../middlewares/auth.js";
 
 import DevisGrille from "../models/DevisGrille.js";
 import DevisFilDresse from "../models/DevisFilDresse.js";

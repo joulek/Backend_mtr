@@ -11,7 +11,7 @@ const ttlInviteHours = 48;    // lien d’invitation valable 48h
 const ttlCodeMinutes = 10;    // code 6 chiffres valable 10 min
 /** Récupérer l'utilisateur connecté */
 export const me = async (req, res) => {
-  // ⚠️ lire l'id depuis req.user.id (middleware auth)
+  // ⚠️ lire l'id depuis req.user.id (middlewares auth)
   const user = await User.findById(req.user?.id);
   if (!user)
     return res.status(404).json({ message: "Utilisateur introuvable" });
@@ -34,7 +34,7 @@ export const updateMe = async (req, res) => {
       if (key in req.body) payload[key] = req.body[key];
     }
 
-    // ⚠️ lire l'id depuis req.user.id (middleware auth)
+    // ⚠️ lire l'id depuis req.user.id (middlewares auth)
     const user = await User.findByIdAndUpdate(req.user?.id, payload, {
       new: true,
     });
@@ -275,7 +275,7 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ success:false, message:"Mot de passe trop court." });
     }
 
-    // utilisateur authentifié via middleware auth -> req.user.id
+    // utilisateur authentifié via middlewares auth -> req.user.id
     const user = await User.findById(req.user?.id).select("+passwordHash");
     if (!user) return res.status(404).json({ success:false, message:"Utilisateur introuvable." });
 

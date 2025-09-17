@@ -1,9 +1,9 @@
 // routes/devisAutre.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import DevisAutre from "../models/DevisAutre.js";
 import { createDevisAutre } from "../controllers/devisAutre.controller.js";
-import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ⚡ nouveau middleware
+import { cloudinaryUploadArray } from "../middlewaress/upload.js"; // ⚡ nouveau middlewares
 
 const router = Router();
 
@@ -131,7 +131,7 @@ router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
 });
 
 /** POST /api/devis/autre (client)
- *  - middleware Cloudinary uploade les fichiers dans "devis/autre_docs"
+ *  - middlewares Cloudinary uploade les fichiers dans "devis/autre_docs"
  *  - req.files        : buffers mémoire (pour mail)
  *  - req.cloudinaryFiles : { url, public_id, bytes, format }
  */

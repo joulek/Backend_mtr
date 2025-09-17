@@ -3,7 +3,7 @@ import DevisAutre from "../models/DevisAutre.js";
 import Counter from "../models/Counter.js";
 import { buildDevisAutrePDF } from "../utils/pdf.devisAutre.js";
 import { makeTransport } from "../utils/mailer.js";
-import { uploadBufferToCloudinary } from "../middlewares/upload.js"; // ⚠️ helper qu'on a créé
+import { uploadBufferToCloudinary } from "../middlewaress/upload.js"; // ⚠️ helper qu'on a créé
 
 const formatDevisNumber = (year, seq) =>
   `DDV${String(year).slice(-2)}${String(seq).padStart(5, "0")}`;
@@ -55,7 +55,7 @@ export const createDevisAutre = async (req, res) => {
       mat = matAutre;
     }
 
-    // fichiers côté upload middleware:
+    // fichiers côté upload middlewares:
     // - req.files       → buffers mémoire (pour attacher par email si <= 15MB)
     // - req.cloudinaryFiles → résultats Cloudinary (url/public_id/bytes/format)
     const incomingFiles = Array.isArray(req.files) ? req.files : [];

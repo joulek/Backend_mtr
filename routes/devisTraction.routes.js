@@ -1,9 +1,9 @@
 // routes/devisTraction.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import DevisTraction from "../models/DevisTraction.js";
 import { createDevisTraction } from "../controllers/devisTraction.controller.js";
-import { cloudinaryUploadArray } from "../middleware/upload.js"; // ✅ notre MW
+import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ notre MW
 
 const router = Router();
 

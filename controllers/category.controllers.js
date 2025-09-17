@@ -45,7 +45,7 @@ export const createCategory = async (req, res) => {
   try {
     const { label, en, alt_fr, alt_en } = req.body;
 
-    // Le middleware Cloudinary met les fichiers dans req.cloudinaryFiles
+    // Le middlewares Cloudinary met les fichiers dans req.cloudinaryFiles
     const f = (req.cloudinaryFiles && req.cloudinaryFiles[0]) || null;
 
     const newCategory = await Category.create({

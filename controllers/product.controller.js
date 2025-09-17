@@ -67,7 +67,7 @@ export const createProduct = async (req, res) => {
   try {
     const { name_fr, name_en, description_fr, description_en, category } = req.body;
 
-    // Images venant de Cloudinary via ton middleware (req.cloudinaryFiles)
+    // Images venant de Cloudinary via ton middlewares (req.cloudinaryFiles)
     // On ne stocke que les URLs pour rester 100% compatible avec ton schéma actuel (Array<String>)
     const images = (req.cloudinaryFiles || []).map((f) => f.url);
 

@@ -1,6 +1,6 @@
 // routes/admin.devis.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import DevisTraction from "../models/DevisTraction.js";
 import DevisTorsion from "../models/DevisTorsion.js"; // ✅ ajouté
 import DevisCompression from "../models/DevisCompression.js"; // ✅ ajouté

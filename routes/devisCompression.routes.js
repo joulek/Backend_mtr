@@ -1,9 +1,9 @@
 // routes/devisCompression.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import { createDevisCompression } from "../controllers/devisCompression.controller.js";
 import DevisCompression from "../models/DevisCompression.js";
-import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ Cloudinary
+import { cloudinaryUploadArray } from "../middlewaress/upload.js"; // ✅ Cloudinary
 
 const router = Router();
 

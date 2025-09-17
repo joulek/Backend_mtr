@@ -1,8 +1,8 @@
-// middleware/auth.js
+// middlewares/auth.js
 import jwt from "jsonwebtoken";
 
 /**
- * Middleware principal : lit le cookie "token", vérifie le JWT,
+ * middlewares principal : lit le cookie "token", vérifie le JWT,
  * et attache { id, role } à req.user.
  */
 export default function auth(req, res, next) {

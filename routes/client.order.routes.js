@@ -1,6 +1,6 @@
 // routes/client.order.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js"; // ✅ default + named
+import auth, { only } from "../middlewares/auth.js"; // ✅ default + named
 import { placeClientOrder, getClientOrderStatus } from "../controllers/order.controller.js";
 
 const router = Router();

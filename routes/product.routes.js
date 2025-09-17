@@ -1,6 +1,6 @@
 // MTR_Backend/routes/product.routes.js
 import { Router } from "express";
-import auth from "../middleware/auth.js";
+import auth from "../middlewares/auth.js";
 import {
   createProduct,
   getProducts,
@@ -10,8 +10,8 @@ import {
   getProductsByCategory
 } from "../controllers/products.controller.js"; // ⚠️ vérifie bien le nom du fichier (products.controller.js)
 
-// ✅ on importe le middleware Cloudinary qu’on a créé
-import { cloudinaryUploadArray } from "../middlewares/upload.js";
+// ✅ on importe le middlewares Cloudinary qu’on a créé
+import { cloudinaryUploadArray } from "../middlewaress/upload.js";
 
 const router = Router();
 

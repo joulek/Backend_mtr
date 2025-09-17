@@ -1,4 +1,4 @@
-// MTR_Backend/middlewares/upload.js
+// MTR_Backend/middlewaress/upload.js
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 
@@ -33,7 +33,7 @@ export const uploadBufferToCloudinary = (buffer, { folder, resource_type = "auto
     stream.end(buffer);
   });
 
-// ---- Middleware pour gérer plusieurs fichiers et les pousser vers Cloudinary ----
+// ---- middlewares pour gérer plusieurs fichiers et les pousser vers Cloudinary ----
 export const cloudinaryUploadArray = (fieldName, folder) => [
   upload.array(fieldName),
   async (req, res, next) => {

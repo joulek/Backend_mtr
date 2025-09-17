@@ -7,9 +7,9 @@ import {
   deleteCategory,
 } from "../controllers/category.controller.js";
 
-// ⚠️ on utilise le middleware Cloudinary (pas l'ancien upload disque)
-import { cloudinaryUploadArray } from "../middlewares/upload.js";
-import auth from "../middleware/auth.js"; // si tu veux protéger
+// ⚠️ on utilise le middlewares Cloudinary (pas l'ancien upload disque)
+import { cloudinaryUploadArray } from "../middlewaress/upload.js";
+import auth from "../middlewares/auth.js"; // si tu veux protéger
 
 const router = express.Router();
 

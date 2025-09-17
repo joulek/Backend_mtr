@@ -3,7 +3,7 @@ import DevisTorsion from "../models/DevisTorsion.js";
 import Counter from "../models/Counter.js";
 import { buildDevisTorsionPDF } from "../utils/pdf.devisTorsion.js";
 import { makeTransport } from "../utils/mailer.js";
-import { uploadBufferToCloudinary } from "../middlewares/upload.js";
+import { uploadBufferToCloudinary } from "../middlewaress/upload.js";
 
 const toNum = (v) => Number(String(v ?? "").replace(",", "."));
 const formatDevisNumber = (year, seq) =>
@@ -30,7 +30,7 @@ export const createDevisTorsion = async (req, res) => {
       matiere, enroulement,
     };
 
-    // fichiers client: buffers + résultats Cloudinary posés par middleware
+    // fichiers client: buffers + résultats Cloudinary posés par middlewares
     const incomingFiles = Array.isArray(req.files) ? req.files : [];
     const cloudResults  = Array.isArray(req.cloudinaryFiles) ? req.cloudinaryFiles : [];
 

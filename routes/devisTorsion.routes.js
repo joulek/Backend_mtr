@@ -1,9 +1,9 @@
 // routes/devisTorsion.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import DevisTorsion from "../models/DevisTorsion.js";
 import { createDevisTorsion } from "../controllers/devisTorsion.controller.js";
-import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅
+import { cloudinaryUploadArray } from "../middlewaress/upload.js"; // ✅
 
 const router = Router();
 
@@ -101,7 +101,7 @@ router.get("/:id/document/:index", auth, only("admin"), async (req, res) => {
 });
 
 /** POST /api/devis/torsion
- *  - middleware Cloudinary يرفع docs → dossier `devis/torsion_docs`
+ *  - middlewares Cloudinary يرفع docs → dossier `devis/torsion_docs`
  *  - req.files: buffers (للإيميل)
  *  - req.cloudinaryFiles: { url, public_id, bytes, format }
  */

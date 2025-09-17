@@ -1,7 +1,7 @@
 // routes/dashboard.routes.js
 import { Router } from "express";
 import { dashboardOverview } from "../controllers/dashboard.controller.js";
-import auth, { only } from "../middleware/auth.js"; // <-- vérifie bien le chemin: middleware/auth.js
+import auth, { only } from "../middlewares/auth.js"; // <-- vérifie bien le chemin: middlewares/auth.js
 
 const router = Router();
 

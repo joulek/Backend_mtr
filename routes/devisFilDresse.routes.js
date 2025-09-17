@@ -1,9 +1,9 @@
 // routes/devisFil.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import DevisFilDresse from "../models/DevisFilDresse.js";
 import { createDevisFilDresse } from "../controllers/devisFilDresse.controller.js";
-import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ✅ Cloudinary
+import { cloudinaryUploadArray } from "../middlewaress/upload.js"; // ✅ Cloudinary
 
 const router = Router();
 
