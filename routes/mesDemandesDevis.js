@@ -2,7 +2,7 @@
 import express from "express";
 import mongoose from "mongoose";
 // adapte ce chemin selon ton projet: "../middleware/auth.js" ou "../middlewares/auth.js"
-import auth from "../middleware/auth.js";
+import auth from "../middlewares/auth.js";
 
 import DevisGrille from "../models/DevisGrille.js";
 import DevisFilDresse from "../models/DevisFilDresse.js";
