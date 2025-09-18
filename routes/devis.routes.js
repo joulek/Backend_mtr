@@ -4,7 +4,7 @@ import auth, { only } from "../middlewares/auth.js";
 import DevisAutre from "../models/DevisAutre.js";
 import { createDevisAutre } from "../controllers/devisAutre.controller.js";
 import { cloudinaryUploadArray } from "../middlewares/upload.js"; // ⚡ nouveau middlewares
-
+import Devis from "../models/Devis.js";
 const router = Router();
 
 /**
