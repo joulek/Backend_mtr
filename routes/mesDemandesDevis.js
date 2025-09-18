@@ -230,7 +230,7 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
     res.setHeader("Content-Length", String(buf.length));
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="devis-${safeName}.pdf"`);
+    res.setHeader("Content-Disposition", `attachment; filename="devis-${safeName}.pdf"`);
     res.end(buf);
   } catch (err) {
     console.error("GET /api/mes-devis/:type/:id/pdf error:", err);
@@ -271,7 +271,7 @@ router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
     res.setHeader("Content-Length", String(buf.length));
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `inline; filename="${safeName}"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
     res.end(buf);
   } catch (err) {
     console.error("GET /api/mes-devis/:type/:id/doc/:docId error:", err);
