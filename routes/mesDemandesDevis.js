@@ -203,38 +203,37 @@ router.get("/mes-devis", auth, async (req, res) => {
  * GET /api/mes-devis/:type/:id/pdf
  * -> redirige 302 vers Cloudinary si url, sinon stream buffer
  * --------------------------------------------------------- */
+// dans routes/mesDevis.js
 router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
   const { type, id } = req.params;
-  try {
-    const Model = modelFromSlug(type);
-    if (!Model) return res.status(404).json({ message: "Type inconnu" });
+  const Model = modelFromSlug(type);
+  const row = await Model.findById(id).select("demandePdf").lean();
+  if (!row) return res.status(404).json({ message: "PDF introuvable" });
 
-    const row = await Model.findById(id).select("demandePdf").lean();
-    if (!row) return res.status(404).json({ message: "PDF introuvable" });
+  const pdf = row.demandePdf;
 
-    if (row?.demandePdf?.url) {
-      return res.redirect(302, row.demandePdf.url);
-    }
-
-    const data = row?.demandePdf?.data;
-    const ct = row?.demandePdf?.contentType || "application/pdf";
-    if (!data || (!Buffer.isBuffer(data) && !data.buffer)) {
-      return res.status(404).json({ message: "PDF introuvable" });
-    }
-
-    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer);
-    const safeName = String(id).replace(/[^a-zA-Z0-9_-]/g, "");
-    res.setHeader("Content-Type", ct);
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `attachment; filename="devis-${safeName}.pdf"`);
-    res.end(buf);
-  } catch (err) {
-    console.error("GET /api/mes-devis/:type/:id/pdf error:", err);
-    res.status(500).json({ message: "Server error" });
+  // 1) Si on a un public_id Cloudinary -> proxy (pas d’URL Cloudinary exposée)
+  if (pdf?.public_id) {
+    const name = `demande-${type}-${id}.pdf`;
+    const url = new URL(`${req.protocol}://${req.get("host")}/api/files/download`);
+    url.searchParams.set("public_id", pdf.public_id);
+    url.searchParams.set("rt", pdf.resource_type || "raw");
+    url.searchParams.set("filename", name);
+    return res.redirect(302, url.toString());
   }
+
+  // 2) Fallback buffer (ancien système)
+  const data = pdf?.data;
+  const ct = pdf?.contentType || "application/pdf";
+  if (!data || (!Buffer.isBuffer(data) && !data?.buffer)) {
+    return res.status(404).json({ message: "PDF introuvable" });
+  }
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer);
+  res.setHeader("Content-Type", ct);
+  res.setHeader("Content-Disposition", `attachment; filename="demande-${type}-${id}.pdf"`);
+  res.end(buf);
 });
+
 
 /* -----------------------------------------------------------
  * GET /api/mes-devis/:type/:id/doc/:docId
@@ -242,38 +241,30 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
  * --------------------------------------------------------- */
 router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
   const { type, id, docId } = req.params;
-  try {
-    const Model = modelFromSlug(type);
-    if (!Model) return res.status(404).json({ message: "Type inconnu" });
+  const Model = modelFromSlug(type);
+  const row = await Model.findById(id).select("documents").lean();
+  const doc = row?.documents?.find(d => String(d._id) === String(docId));
+  if (!doc) return res.status(404).json({ message: "Document introuvable" });
 
-    const row = await Model.findById(id).select("documents").lean();
-    if (!row || !Array.isArray(row.documents)) {
-      return res.status(404).json({ message: "Document introuvable" });
-    }
-
-    const doc = row.documents.find((d) => String(d._id) === String(docId));
-    if (!doc) return res.status(404).json({ message: "Document inexistant" });
-
-    if (doc?.url) {
-      return res.redirect(302, doc.url);
-    }
-
-    const data = doc.data;
-    if (!data) return res.status(404).json({ message: "Document vide" });
-
-    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer);
-    const safeName = String(doc.filename || `document-${docId}`).replace(/["]/g, "");
-    res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
-    res.setHeader("Content-Length", String(buf.length));
-    res.setHeader("Accept-Ranges", "bytes");
-    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
-    res.setHeader("Content-Disposition", `attachment; filename="${safeName}"`);
-    res.end(buf);
-  } catch (err) {
-    console.error("GET /api/mes-devis/:type/:id/doc/:docId error:", err);
-    res.status(500).json({ message: "Server error" });
+  if (doc.public_id) {
+    const rt = (doc.mimetype || "").startsWith("image/") ? "image" : "raw";
+    const name = doc.filename || `document-${docId}`;
+    const url = new URL(`${req.protocol}://${req.get("host")}/api/files/download`);
+    url.searchParams.set("public_id", doc.public_id);
+    url.searchParams.set("rt", rt);
+    url.searchParams.set("filename", name);
+    return res.redirect(302, url.toString());
   }
+
+  // Fallback buffer si pas Cloudinary
+  const data = doc.data;
+  if (!data) return res.status(404).json({ message: "Document vide" });
+  const buf = Buffer.isBuffer(data) ? data : Buffer.from(data.buffer);
+  res.setHeader("Content-Type", doc.mimetype || "application/octet-stream");
+  res.setHeader("Content-Disposition", `attachment; filename="${doc.filename || `document-${docId}`}"`);
+  res.end(buf);
 });
+
 
 /* -----------------------------------------------------------
  * GET /api/devis/client/by-demande/:demandeId

@@ -26,6 +26,8 @@ import devisRoutes from "./routes/devis.routes.js";
 import clientOrderRoutes from "./routes/client.order.routes.js";
 import contactRoutes from "./routes/contact.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
+import filesProxyRoutes from "./routes/files.proxy.js";
+
 
 dotenv.config();
 
@@ -93,7 +95,7 @@ app.use("/api", mesDemandesDevisRoutes);
 app.use("/api", signedFilesRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
 app.use("/api/admin/users", userRoutes);
-
+app.use("/api", filesProxyRoutes);
 app.use("/api/order", clientOrderRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/dashboard", dashboardRoutes);
