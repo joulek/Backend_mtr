@@ -91,7 +91,6 @@ app.use("/api/devis/autre", devisAutreRoutes);
 app.use("/api/devis", devisRoutes);
 app.use("/api", mesDemandesDevisRoutes);
 
-app.use("/api", signedFilesRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
 app.use("/api/admin/users", userRoutes);
 app.use("/api", filesProxyRoutes);
