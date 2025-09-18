@@ -16,20 +16,20 @@ const router = express.Router();
  * Types de devis disponibles
  * --------------------------------------------------------- */
 const TYPES = {
-  grille:      { label: "Grille métallique",   Model: DevisGrille },
-  fildresse:   { label: "Fil dressé/coupé",    Model: DevisFilDresse },
-  compression: { label: "Ressort de Compression", Model: DevisCompression },
-  traction:    { label: "Ressort de Traction", Model: DevisTraction },
-  torsion:     { label: "Ressort de Torsion",  Model: DevisTorsion },
-  autre:       { label: "Autre article",       Model: DevisAutre },
+  grille:      { label: "Grille métallique",        Model: DevisGrille },
+  fildresse:   { label: "Fil dressé/coupé",         Model: DevisFilDresse },
+  compression: { label: "Ressort de Compression",   Model: DevisCompression },
+  traction:    { label: "Ressort de Traction",      Model: DevisTraction },
+  torsion:     { label: "Ressort de Torsion",       Model: DevisTorsion },
+  autre:       { label: "Autre article",            Model: DevisAutre },
 };
 
 const REF_FIELDS = [
-  "ref", "reference", "numero", "num", "code", "quoteRef", "quoteNo", "requestNumber",
+  "ref","reference","numero","num","code","quoteRef","quoteNo","requestNumber",
 ];
 
 const TEXT_FIELDS = [
-  "subject", "message", "comments", "description", "notes",
+  "subject","message","comments","description","notes",
   ...REF_FIELDS,
 ];
 
@@ -39,32 +39,6 @@ const pickRef = (doc) => {
   for (const k of REF_FIELDS) if (doc?.[k]) return doc[k];
   return null;
 };
-
-function normalizeItem(req, doc, slug, label) {
-  const hasPdf = !!(doc?.demandePdf?.data?.length || doc?.demandePdf?.contentType);
-  const base = `${req.protocol}://${req.get("host")}/api/mes-devis/${slug}/${doc._id}`;
-  const pdfUrl = hasPdf ? `${base}/pdf` : null;
-
-  const files = Array.isArray(doc.documents)
-    ? doc.documents.map((d) => ({
-        _id: String(d._id),
-        name: d.filename || `document-${d._id}`,
-        url: `${base}/doc/${d._id}`,
-      }))
-    : [];
-
-  return {
-    _id: String(doc._id),
-    type: slug,
-    typeLabel: label,
-    ref: pickRef(doc),
-    hasPdf,
-    pdfUrl,
-    files,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-  };
-}
 
 /* -----------------------------------------------------------
  * GET /api/mes-devis
@@ -84,6 +58,7 @@ router.get("/mes-devis", auth, async (req, res) => {
 
     const rx = q ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
 
+    // pipeline par modèle, commun à toutes les collections
     const perModelPipe = (slug) => ([
       // coalesce owner
       {
@@ -102,26 +77,35 @@ router.get("/mes-devis", auth, async (req, res) => {
       },
       { $match: { __owner: who } },
 
-      // text filter (optional)
+      // filtre texte optionnel
       ...(rx ? [{
         $match: {
-          $or: TEXT_FIELDS.map(f => ({ [f]: { $regex: rx, $options: "i" } }))
+          $or: TEXT_FIELDS.map((f) => ({ [f]: { $regex: rx, $options: "i" } }))
         }
       }] : []),
 
-      // keep metadata only (⚠️ documents must stay an array -> use $map)
+      // on garde la méta + les URLs Cloudinary si présentes
       {
         $project: {
           createdAt: 1,
           updatedAt: 1,
+          // PDF (nouveau: on expose aussi l'URL Cloudinary)
           "demandePdf.contentType": 1,
+          "demandePdf.url": 1,
+          // documents: conserver _id/filename/mimetype + URL si dispo
           documents: {
             $map: {
               input: { $ifNull: ["$documents", []] },
               as: "d",
-              in: { _id: "$$d._id", filename: "$$d.filename", mimetype: "$$d.mimetype" }
+              in: {
+                _id: "$$d._id",
+                filename: "$$d.filename",
+                mimetype: "$$d.mimetype",
+                url: "$$d.url",
+              }
             }
           },
+          // référence "fusionnée"
           __ref: {
             $ifNull: [
               "$ref","$reference","$numero","$num","$code","$quoteRef","$quoteNo","$requestNumber", null
@@ -130,20 +114,26 @@ router.get("/mes-devis", auth, async (req, res) => {
         }
       },
 
-      // mark type & hasPdf
-      { $addFields: { _type: slug, _hasPdf: { $toBool: "$demandePdf.contentType" } } }
+      // marquage type + hasPdf = (url Cloudinary OU contentType)
+      {
+        $addFields: {
+          _type: slug,
+          _hasPdf: { $or: [ { $toBool: "$demandePdf.url" }, { $toBool: "$demandePdf.contentType" } ] }
+        }
+      }
     ]);
 
+    // on choisit une collection de base et on unionWith les autres
     const baseSlug = "grille";
-    const unionSlugs = Object.keys(TYPES).filter(s => s !== baseSlug);
+    const unionSlugs = Object.keys(TYPES).filter((s) => s !== baseSlug);
 
     const pipeline = [
       ...perModelPipe(baseSlug),
-      ...unionSlugs.flatMap(slug => ([
+      ...unionSlugs.flatMap((slug) => ([
         {
           $unionWith: {
             coll: mongoose.model(TYPES[slug].Model.modelName).collection.name,
-            pipeline: perModelPipe(slug)
+            pipeline: perModelPipe(slug),
           }
         }
       ])),
@@ -169,11 +159,25 @@ router.get("/mes-devis", auth, async (req, res) => {
     const aggResult = await baseModel.aggregate(pipeline).allowDiskUse(true);
     const { items = [], total = 0 } = aggResult[0] || {};
 
+    // mise en forme API (préférence Cloudinary, fallback routes /pdf + /doc)
     const ORIGIN = `${req.protocol}://${req.get("host")}`;
     const cooked = items.map((it) => {
       const slug = it._type;
       const label = TYPES[slug]?.label || slug;
       const base = `${ORIGIN}/api/mes-devis/${slug}/${it._id}`;
+
+      const pdfUrl =
+        it?.demandePdf?.url
+          ? it.demandePdf.url           // ✅ Cloudinary en priorité
+          : (it._hasPdf ? `${base}/pdf` : null); // fallback buffer
+
+      const files = Array.isArray(it.documents)
+        ? it.documents.map((d) => ({
+            _id: String(d._id),
+            name: d.filename || `document-${d._id}`,
+            url: d.url || `${base}/doc/${d._id}`, // ✅ Cloudinary si présent sinon route fallback
+          }))
+        : [];
 
       return {
         _id: String(it._id),
@@ -181,16 +185,10 @@ router.get("/mes-devis", auth, async (req, res) => {
         typeLabel: label,
         ref: it.__ref || null,
         hasPdf: !!it._hasPdf,
-        pdfUrl: it._hasPdf ? `${base}/pdf` : null,
-        files: Array.isArray(it.documents)
-          ? it.documents.map(d => ({
-              _id: String(d._id),
-              name: d.filename || `document-${d._id}`,
-              url: `${base}/doc/${d._id}`,
-            }))
-          : [],
+        pdfUrl,
+        files,
         createdAt: it.createdAt,
-        updatedAt: it.updatedAt
+        updatedAt: it.updatedAt,
       };
     });
 
@@ -203,7 +201,7 @@ router.get("/mes-devis", auth, async (req, res) => {
 
 /* -----------------------------------------------------------
  * GET /api/mes-devis/:type/:id/pdf
- * -> stream du PDF "demandePdf"
+ * -> ouvre le PDF : redirige vers Cloudinary si url, sinon stream le buffer
  * --------------------------------------------------------- */
 router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
   const { type, id } = req.params;
@@ -214,6 +212,12 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
     const row = await Model.findById(id).select("demandePdf").lean();
     if (!row) return res.status(404).json({ message: "PDF introuvable" });
 
+    // ✅ si URL Cloudinary dispo → redirection 302
+    if (row?.demandePdf?.url) {
+      return res.redirect(row.demandePdf.url);
+    }
+
+    // sinon fallback: buffer
     const data = row?.demandePdf?.data;
     const ct = row?.demandePdf?.contentType || "application/pdf";
     if (!data || (!Buffer.isBuffer(data) && !data.buffer)) {
@@ -236,7 +240,7 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
 
 /* -----------------------------------------------------------
  * GET /api/mes-devis/:type/:id/doc/:docId
- * -> stream d'une pièce jointe "documents"
+ * -> ouvre une pièce jointe : redirige vers Cloudinary si url, sinon stream buffer
  * --------------------------------------------------------- */
 router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
   const { type, id, docId } = req.params;
@@ -252,6 +256,12 @@ router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
     const doc = row.documents.find((d) => String(d._id) === String(docId));
     if (!doc) return res.status(404).json({ message: "Document inexistant" });
 
+    // ✅ si URL Cloudinary → redirection 302
+    if (doc?.url) {
+      return res.redirect(doc.url);
+    }
+
+    // sinon fallback: buffer
     const data = doc.data;
     if (!data) return res.status(404).json({ message: "Document vide" });
 
