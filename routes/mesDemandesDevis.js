@@ -9,7 +9,7 @@ import DevisCompression from "../models/DevisCompression.js";
 import DevisTraction from "../models/DevisTraction.js";
 import DevisTorsion from "../models/DevisTorsion.js";
 import DevisAutre from "../models/DevisAutre.js";
-
+import Devis from "../models/Devis.js";
 const router = express.Router();
 
 /* -----------------------------------------------------------
