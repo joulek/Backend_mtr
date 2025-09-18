@@ -1,6 +1,6 @@
 // routes/devis.admin.routes.js
 import { Router } from "express";
-import auth, { only } from "../middleware/auth.js";
+import auth, { only } from "../middlewares/auth.js";
 import {
   getAllDevisNumeros,
   getNextDevisNumberPreview,
