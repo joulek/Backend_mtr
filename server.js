@@ -6,7 +6,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
 import multer from "multer";
-
+import signedFilesRoutes from "./routes/files.signed.js";
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import devisTractionRoutes from "./routes/devisTraction.routes.js";
@@ -88,7 +88,7 @@ app.use("/api/devis/grille", devisGrilleRoutes);
 app.use("/api/devis/filDresse", devisFillDresseRoutes);
 app.use("/api/devis/autre", devisAutreRoutes);
 app.use("/api/devis", devisRoutes);
-
+app.use("/api", signedFilesRoutes);
 app.use("/api/reclamations", auth, upload.array("piecesJointes"), reclamationRoutes);
 app.use("/api/admin/users", userRoutes);
 app.use("/api", mesDemandesDevisRoutes);
