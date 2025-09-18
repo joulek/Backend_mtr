@@ -1,7 +1,8 @@
 // routes/mesDevis.js
 import express from "express";
 import mongoose from "mongoose";
-import auth from "../middlewares/auth.js";
+// adapte ce chemin selon ton projet: "../middleware/auth.js" ou "../middlewares/auth.js"
+import auth from "../middleware/auth.js";
 
 import DevisGrille from "../models/DevisGrille.js";
 import DevisFilDresse from "../models/DevisFilDresse.js";
@@ -10,6 +11,7 @@ import DevisTraction from "../models/DevisTraction.js";
 import DevisTorsion from "../models/DevisTorsion.js";
 import DevisAutre from "../models/DevisAutre.js";
 import Devis from "../models/Devis.js";
+
 const router = express.Router();
 
 /* -----------------------------------------------------------
@@ -17,11 +19,11 @@ const router = express.Router();
  * --------------------------------------------------------- */
 const TYPES = {
   grille:      { label: "Grille métallique",        Model: DevisGrille },
-  fildresse:   { label: "Fil dressé/coupé",         Model: DevisFilDresse },
+  fildresse:   { label: "Fil Dressé/coupé",         Model: DevisFilDresse },
   compression: { label: "Ressort de Compression",   Model: DevisCompression },
   traction:    { label: "Ressort de Traction",      Model: DevisTraction },
   torsion:     { label: "Ressort de Torsion",       Model: DevisTorsion },
-  autre:       { label: "Autre article",            Model: DevisAutre },
+  autre:       { label: "Autre types",              Model: DevisAutre },
 };
 
 const REF_FIELDS = [
@@ -35,14 +37,10 @@ const TEXT_FIELDS = [
 
 const modelFromSlug = (slug) => TYPES[slug]?.Model || null;
 
-const pickRef = (doc) => {
-  for (const k of REF_FIELDS) if (doc?.[k]) return doc[k];
-  return null;
-};
-
 /* -----------------------------------------------------------
  * GET /api/mes-devis
  * -> liste paginée des devis du client connecté
+ *    (préférence URL Cloudinary si disponible)
  * --------------------------------------------------------- */
 router.get("/mes-devis", auth, async (req, res) => {
   try {
@@ -55,12 +53,11 @@ router.get("/mes-devis", auth, async (req, res) => {
 
     const oid = mongoose.isValidObjectId(userId) ? new mongoose.Types.ObjectId(userId) : null;
     const who = oid || userId;
-
     const rx = q ? new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") : null;
 
-    // pipeline par modèle, commun à toutes les collections
+    // pipeline commun pour chaque modèle
     const perModelPipe = (slug) => ([
-      // coalesce owner
+      // owner coalesce
       {
         $addFields: {
           __owner: {
@@ -77,22 +74,21 @@ router.get("/mes-devis", auth, async (req, res) => {
       },
       { $match: { __owner: who } },
 
-      // filtre texte optionnel
       ...(rx ? [{
         $match: {
           $or: TEXT_FIELDS.map((f) => ({ [f]: { $regex: rx, $options: "i" } }))
         }
       }] : []),
 
-      // on garde la méta + les URLs Cloudinary si présentes
+      // garder méta + URL Cloudinary si présente
       {
         $project: {
           createdAt: 1,
           updatedAt: 1,
-          // PDF (nouveau: on expose aussi l'URL Cloudinary)
-          "demandePdf.contentType": 1,
+          // demandePdf.* pour décider: url (cloudinary) OU buffer/contentType
           "demandePdf.url": 1,
-          // documents: conserver _id/filename/mimetype + URL si dispo
+          "demandePdf.contentType": 1,
+          // documents avec url si présente
           documents: {
             $map: {
               input: { $ifNull: ["$documents", []] },
@@ -101,11 +97,11 @@ router.get("/mes-devis", auth, async (req, res) => {
                 _id: "$$d._id",
                 filename: "$$d.filename",
                 mimetype: "$$d.mimetype",
-                url: "$$d.url",
+                url: "$$d.url"
               }
             }
           },
-          // référence "fusionnée"
+          // ref unifiée
           __ref: {
             $ifNull: [
               "$ref","$reference","$numero","$num","$code","$quoteRef","$quoteNo","$requestNumber", null
@@ -114,16 +110,20 @@ router.get("/mes-devis", auth, async (req, res) => {
         }
       },
 
-      // marquage type + hasPdf = (url Cloudinary OU contentType)
+      // flags internes
       {
         $addFields: {
           _type: slug,
-          _hasPdf: { $or: [ { $toBool: "$demandePdf.url" }, { $toBool: "$demandePdf.contentType" } ] }
+          _hasPdf: {
+            $or: [
+              { $toBool: "$demandePdf.url" },
+              { $toBool: "$demandePdf.contentType" }
+            ]
+          }
         }
       }
     ]);
 
-    // on choisit une collection de base et on unionWith les autres
     const baseSlug = "grille";
     const unionSlugs = Object.keys(TYPES).filter((s) => s !== baseSlug);
 
@@ -159,23 +159,23 @@ router.get("/mes-devis", auth, async (req, res) => {
     const aggResult = await baseModel.aggregate(pipeline).allowDiskUse(true);
     const { items = [], total = 0 } = aggResult[0] || {};
 
-    // mise en forme API (préférence Cloudinary, fallback routes /pdf + /doc)
     const ORIGIN = `${req.protocol}://${req.get("host")}`;
+
     const cooked = items.map((it) => {
       const slug = it._type;
       const label = TYPES[slug]?.label || slug;
       const base = `${ORIGIN}/api/mes-devis/${slug}/${it._id}`;
 
-      const pdfUrl =
-        it?.demandePdf?.url
-          ? it.demandePdf.url           // ✅ Cloudinary en priorité
-          : (it._hasPdf ? `${base}/pdf` : null); // fallback buffer
+      // préférer URL Cloudinary si dispo
+      const pdfUrl = it?.demandePdf?.url
+        ? it.demandePdf.url
+        : (it._hasPdf ? `${base}/pdf` : null);
 
       const files = Array.isArray(it.documents)
         ? it.documents.map((d) => ({
             _id: String(d._id),
             name: d.filename || `document-${d._id}`,
-            url: d.url || `${base}/doc/${d._id}`, // ✅ Cloudinary si présent sinon route fallback
+            url: d.url || `${base}/doc/${d._id}`, // cloudinary si présent sinon fallback backend
           }))
         : [];
 
@@ -201,7 +201,7 @@ router.get("/mes-devis", auth, async (req, res) => {
 
 /* -----------------------------------------------------------
  * GET /api/mes-devis/:type/:id/pdf
- * -> ouvre le PDF : redirige vers Cloudinary si url, sinon stream le buffer
+ * -> redirige 302 vers Cloudinary si url, sinon stream buffer
  * --------------------------------------------------------- */
 router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
   const { type, id } = req.params;
@@ -212,12 +212,10 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
     const row = await Model.findById(id).select("demandePdf").lean();
     if (!row) return res.status(404).json({ message: "PDF introuvable" });
 
-    // ✅ si URL Cloudinary dispo → redirection 302
     if (row?.demandePdf?.url) {
-      return res.redirect(row.demandePdf.url);
+      return res.redirect(302, row.demandePdf.url);
     }
 
-    // sinon fallback: buffer
     const data = row?.demandePdf?.data;
     const ct = row?.demandePdf?.contentType || "application/pdf";
     if (!data || (!Buffer.isBuffer(data) && !data.buffer)) {
@@ -240,7 +238,7 @@ router.get("/mes-devis/:type/:id/pdf", auth, async (req, res) => {
 
 /* -----------------------------------------------------------
  * GET /api/mes-devis/:type/:id/doc/:docId
- * -> ouvre une pièce jointe : redirige vers Cloudinary si url, sinon stream buffer
+ * -> redirige 302 vers Cloudinary si url, sinon stream buffer
  * --------------------------------------------------------- */
 router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
   const { type, id, docId } = req.params;
@@ -256,12 +254,10 @@ router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
     const doc = row.documents.find((d) => String(d._id) === String(docId));
     if (!doc) return res.status(404).json({ message: "Document inexistant" });
 
-    // ✅ si URL Cloudinary → redirection 302
     if (doc?.url) {
-      return res.redirect(doc.url);
+      return res.redirect(302, doc.url);
     }
 
-    // sinon fallback: buffer
     const data = doc.data;
     if (!data) return res.status(404).json({ message: "Document vide" });
 
@@ -276,6 +272,46 @@ router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
   } catch (err) {
     console.error("GET /api/mes-devis/:type/:id/doc/:docId error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* -----------------------------------------------------------
+ * GET /api/devis/client/by-demande/:demandeId
+ * -> renvoie le devis commercial lié (numero, pdf url/public_id)
+ * --------------------------------------------------------- */
+router.get("/devis/client/by-demande/:demandeId", auth, async (req, res) => {
+  try {
+    const { demandeId } = req.params;
+
+    const filter = {
+      demande: mongoose.isValidObjectId(demandeId)
+        ? new mongoose.Types.ObjectId(demandeId)
+        : demandeId,
+    };
+
+    // si ton schéma utilise "client" (souvent pour les devis commerciaux)
+    // sinon remplace par { user: req.user.id }
+    filter.client = req.user.id;
+
+    const dv = await Devis.findOne(filter)
+      .select("numero devisPdfUrl pdf kind")
+      .lean();
+
+    if (!dv) return res.status(404).json({ success: true, exists: false });
+
+    const pdfUrl = dv.devisPdfUrl || dv?.pdf?.url || null;
+    const publicId = dv?.pdf?.public_id || null;
+
+    return res.json({
+      success: true,
+      exists: true,
+      devis: { numero: dv.numero || null, kind: dv.kind || null },
+      pdf: pdfUrl,
+      public_id: publicId,
+    });
+  } catch (e) {
+    console.error("GET /api/devis/client/by-demande error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
   }
 });
 
