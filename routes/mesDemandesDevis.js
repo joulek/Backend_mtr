@@ -278,5 +278,33 @@ router.get("/mes-devis/:type/:id/doc/:docId", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+router.get("/devis/client/by-demande/:demandeId", auth, async (req, res) => {
+  try {
+    const { demandeId } = req.params;
+
+    // adapte le critère à ton schéma : ici on suppose que "demandeId" est stocké
+    // et qu'on a le champ devisPdfUrl (Cloudinary) + numero.
+    const dv = await Devis.findOne({ demandeId, user: req.user.id })
+      .select("numero devisPdfUrl")
+      .lean();
+
+    if (!dv) return res.status(404).json({ success: true, exists: false });
+
+    // dv.devisPdfUrl : mets le bon champ (ex: dv.pdf.url si tu stockes un objet)
+    if (!dv.devisPdfUrl) {
+      return res.json({ success: true, exists: true, devis: { numero: dv.numero || null }, pdf: null });
+    }
+
+    return res.json({
+      success: true,
+      exists: true,
+      devis: { numero: dv.numero || null },
+      pdf: dv.devisPdfUrl, // URL Cloudinary publique
+    });
+  } catch (e) {
+    console.error("GET /api/devis/client/by-demande error:", e);
+    res.status(500).json({ success: false, message: "Erreur serveur" });
+  }
+});
 
 export default router;
